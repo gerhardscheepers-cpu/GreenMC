@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <title>Green moisture content and oven dry density estimator</title>
+  <style>
+    :root {
+      --bg: #f4f6f4;
+      --card: #fff;
+      --line: #d5dcd5;
+      --accent: #2e6b34;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: system-ui, Arial, sans-serif;
+      margin: 0;
+      background: var(--bg);
+      color: #1c241c;
+    }
+
+    header {
+      background: var(--accent);
+      color: #fff;
+      padding: 14px 20px;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 1.25rem;
+    }
+
+    header p {
+      margin: 4px 0 0;
+      font-size: .85rem;
+      opacity: .9;
+    }
+
+    main {
+      max-width: 1100px;
+      margin: 16px auto;
+      padding: 0 12px;
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 14px;
+    }
+
+    @media (max-width:800px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    h2 {
+      font-size: 1rem;
+      margin: 0 0 10px;
+      color: var(--accent);
+    }
+
+    label {
+      display: block;
+      font-size: .8rem;
+      margin: 8px 0 2px;
+    }
+
+    input,
+    select {
+      width: 100%;
+      padding: 6px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      font-size: .9rem;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .row>div {
+      flex: 1;
+    }
+
+    button {
+      margin-top: 12px;
+      width: 100%;
+      padding: 9px;
+      background: var(--accent);
+      color: #fff;
+      border: 0;
+      border-radius: 5px;
+      font-size: .95rem;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: #6c7a6c;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: .82rem;
+    }
+
+    th,
+    td {
+      border: 1px solid var(--line);
+      padding: 4px 6px;
+      text-align: right;
+    }
+
+    th {
+      background: #e7ece7;
+    }
+
+    th:first-child,
+    td:first-child {
+      text-align: left;
+    }
+
+    #chart {
+      margin-top: 12px;
+    }
+
+    .note {
+      font-size: .75rem;
+      color: #5b655b;
+      margin-top: 10px;
+      line-height: 1.4;
+    }
+
+    @media print {
+      .noprint {
+        display: none;
+      }
+
+      body {
+        background: #fff;
+      }
+
+      main {
+        display: block;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>Green moisture content and oven dry density estimator</h1>
+    <p>Rough estimator of green moisture content and oven dry density via log dimension, sawing pattern and
+      sapwood/heartwood properties.</p>
+  </header>
+  <main>
+    <section class="card noprint" id="inputs">
+      <h2>Species properties</h2>
+      <label for="species">Species (defaults editable)</label>
+      <select id="species"></select>
+      <div class="row">
+        <div><label>Sapwood MC (%)</label><input type="number" id="mcSap" step="1"></div>
+        <div><label>Heartwood MC (%)</label><input type="number" id="mcHeart" step="1"></div>
+      </div>
+      <div class="row">
+        <div><label>Species minimum oven-dry density (kg/m³, OD volume)</label><input type="number" id="rhoMin"
+            step="5"></div>
+        <div><label>Species maximum oven-dry density (kg/m³, OD volume)</label><input type="number" id="rhoMax"
+            step="5"></div>
+      </div>
+      <label>Heartwood diameter fraction — min and max (0–1)</label>
+      <div class="row">
+        <div><label style="margin-top:0">Minimum</label><input type="number" id="heartFracMin" step="0.05" min="0"
+            max="1"></div>
+        <div><label style="margin-top:0">Maximum</label><input type="number" id="heartFracMax" step="0.05" min="0"
+            max="1"></div>
+      </div>
+      <h2 style="margin-top:14px">Log</h2>
+      <div class="row">
+        <div><label>Small-end diameter (mm)</label><input type="number" id="dSmall" step="5"></div>
+        <div><label>Large-end diameter (mm)</label><input type="number" id="dLarge" step="5"></div>
+      </div>
+      <label>Log length (m)</label><input type="number" id="length" step="0.1">
+      <h2 style="margin-top:14px">Sawing pattern</h2>
+      <label>Pattern</label>
+      <select id="pattern">
+        <option value="tnt">Through-and-through (live sawing)</option>
+        <option value="cant">Cant + side boards</option>
+      </select>
+      <div class="row">
+        <div><label>Board thickness (mm)</label><input type="number" id="thickness" step="1"></div>
+        <div><label>Kerf (mm)</label><input type="number" id="kerf" step="0.1"></div>
+      </div>
+      <div class="row">
+        <div><label>Edge trim each side (mm)</label><input type="number" id="edgeTrim" step="5"></div>
+        <div><label>Cant width (mm, 0 = none)</label><input type="number" id="cantWidth" step="5"></div>
+      </div>
+      <button id="calc">Calculate</button>
+      <button id="csv" class="secondary">Export CSV</button>
+      <button id="print" class="secondary">Print / PDF</button>
+      <p class="note">Assumptions: circular cross-section; taper handled by using the mean-section radius for board
+        areas and the small end for layout; no within-zone MC gradient; boards run full length. The density inputs give
+        the SPECIES minimum and maximum oven-dry density (oven-dry mass / oven-dry volume); within each log the radial
+        density range is 0.7 × the species range, placed randomly inside the species range for every log, so all
+        densities stay within the species bounds. Heartwood and sapwood MC vary between logs with SD = 5 % of the given
+        values. The heartwood fraction is sampled 1000 times (one sample per simulated log) from a normal distribution
+        centred on (min + max)/2 with SD
+        = (max − min)/4, kept within [min, max]; sampling is seeded and therefore reproducible. Expected accuracy
+        roughly ±10–15 % on MC — for charge planning and logistics, not payment grading. Calibrate species values
+        against your own mill measurements.</p>
+    </section>
+    <section class="card" id="results">
+      <h2>Per-board results</h2>
+      <div id="boardTable">
+        <p class="note">Enter inputs and press Calculate.</p>
+      </div>
+      <div id="cross"></div>
+      <div id="boardSelect"></div>
+      <div id="chart"></div>
+      <div id="chartRho"></div>
+    </section>
+  </main>
+  <script id="engine">/* ================= GreenDensMC engine (DOM-free) =================
+Units: mm, m, kg, kg/m3. Densities are basic densities
+(oven-dry mass per green volume). MC is dry-basis (%).            */
+    const ENGINE = (() => {
+      // Species defaults from published ranges (USDA Wood Handbook
+      // FPL-GTR-282 class values + Nordic practice). Calibrate locally.
+      const SPECIES = {
+        // Green MC values: USDA Wood Handbook (FPL-GTR-282) Table 4-3 class
+        // values where available; plantation-hardwood literature ranges for
+        // acacia/eucalypt/rubberwood/teak. rhoMin/rhoMax are the SPECIES-level
+        // minimum and maximum oven-dry densities (oven-dry mass / oven-dry
+        // volume); within one log the radial density range is 0.7 x (rhoMax -
+        // rhoMin), placed randomly inside [rhoMin, rhoMax] between logs.
+        // shrinkVol is total volumetric shrinkage green -> oven-dry (%),
+        // used only for the (dormant) od->green volume conversion.
+        // All values are class defaults - calibrate to your stock.
+        "Norway spruce (Picea abies)": { mcSap: 140, mcHeart: 40, rhoMin: 360, rhoMax: 480, shrinkVol: 12, heartFracMin: 0.5, heartFracMax: 0.7 },
+        "Scots pine (Pinus sylvestris)": { mcSap: 130, mcHeart: 40, rhoMin: 360, rhoMax: 500, shrinkVol: 12, heartFracMin: 0.45, heartFracMax: 0.7 },
+        "English oak (Quercus robur)": { mcSap: 80, mcHeart: 75, rhoMin: 630, rhoMax: 720, shrinkVol: 16, heartFracMin: 0.60, heartFracMax: 0.80 }
+      };
+
+      // ---- Monte-Carlo sampling between logs -----------------------------
+      // Deterministic PRNG (mulberry32) so repeated runs are reproducible.
+      function mulberry32(a) {
+        return function () {
+          a |= 0; a = a + 0x6D2B79F5 | 0;
+          let t = Math.imul(a ^ a >>> 15, 1 | a);
+          t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+          return ((t ^ t >>> 14) >>> 0) / 4294967296;
+        };
+      }
+      // Standard normal via Box-Muller.
+      function gaussian(rng) {
+        let u = 0, v = 0;
+        while (u === 0) u = rng();
+        while (v === 0) v = rng();
+        return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+      }
+      // n samples ~ Normal(mean, sd), kept inside [lo,hi] by rejection
+      // (falls back to clamping after many tries).
+      function sampleNormalRange(mean, sd, lo, hi, n, seed) {
+        const rng = mulberry32(seed == null ? 42 : seed);
+        const out = [];
+        for (let i = 0; i < n; i++) {
+          let v = mean + sd * gaussian(rng), tries = 0;
+          while ((v < lo || v > hi) && tries < 100) { v = mean + sd * gaussian(rng); tries++; }
+          out.push(Math.min(hi, Math.max(lo, v)));
+        }
+        return out;
+      }
+      // Heartwood fraction per log: Normal((min+max)/2, (max-min)/4) within range.
+      function sampleHeartFrac(minF, maxF, n, seed) {
+        const mean = (minF + maxF) / 2;
+        const sd = Math.max((maxF - minF) / 4, 1e-9);
+        return sampleNormalRange(mean, sd, minF, maxF, n, seed);
+      }
+      // Per-log density range: the radial range within one log is fixed at
+      // 0.7 x the species range (maxR - minR), and the log's [core, perimeter]
+      // interval is placed randomly (normal, rejection-sampled) inside the
+      // species interval, so it always fits within [minR, maxR].
+      function sampleLogDensity(minR, maxR, n, seed) {
+        const Rs = Math.max(maxR - minR, 0);
+        const within = 0.7 * Rs;
+        const lo = minR, hi = maxR - within;
+        const mean = (lo + hi) / 2;
+        const sd = Math.max((hi - lo) / 4, 1e-9);
+        const cores = sampleNormalRange(mean, sd, lo, hi, n, seed);
+        return { cores: cores, pers: cores.map(c => c + within) };
+      }
+      // Moisture content per log: Normal(given value, SD = 5 % of it), floored
+      // at 1 % so physiologically impossible values never occur.
+      function sampleMc(value, n, seed) {
+        const sd = 0.05 * Math.abs(value);
+        return sampleNormalRange(value, sd, 1, Infinity, n, seed);
+      }
+
+      // Area (mm^2) of rect [x1,x2]x[y1,y2] inside circle radius r centred
+      // on the pith, via 60x60 midpoint grid integration.
+      function rectInside(x1, x2, y1, y2, r, N) {
+        N = N || 60;
+        let inside = 0;
+        const dx = (x2 - x1) / N, dy = (y2 - y1) / N;
+        for (let i = 0; i < N; i++) {
+          const y = y1 + (i + 0.5) * dy;
+          for (let j = 0; j < N; j++) {
+            const x = x1 + (j + 0.5) * dx;
+            if (x * x + y * y <= r * r) inside++;
+          }
+        }
+        return inside * dx * dy;
+      }
+
+      // One-pass grid integral over a rectangle inside a circle of radius R,
+      // with a sub-count for the heartwood circle of radius rh. Returns area
+      // (mm^2) and radial first moments (mm^3): a (inside R), rs (sum of r over
+      // cells inside R), ah / rsh (same for the heartwood circle).
+      function rectRadial(x1, x2, y1, y2, R, rh, N) {
+        N = N || 60;
+        let a = 0, rs = 0, ah = 0, rsh = 0;
+        const dx = (x2 - x1) / N, dy = (y2 - y1) / N;
+        for (let i = 0; i < N; i++) {
+          const y = y1 + (i + 0.5) * dy;
+          for (let j = 0; j < N; j++) {
+            const x = x1 + (j + 0.5) * dx;
+            const rr = Math.sqrt(x * x + y * y);
+            if (rr <= R) {
+              a++;
+              rs += rr;
+              if (rr <= rh) { ah++; rsh += rr; }
+            }
+          }
+        }
+        const dA = dx * dy;
+        return { a: a * dA, rs: rs * dA, ah: ah * dA, rsh: rsh * dA };
+      }
+
+      // Symmetric layout on the small-end section; y = height above pith.
+      // Returns [{y1,y2,x1,x2,orient:"h"|"v",isCant,label,warnings}] ordered
+      // top bark-side -> pith -> bottom bark-side, then left/right side boards.
+      function buildLayout(p) {
+        const R = p.dSmall / 2, t = p.thickness, k = p.kerf, e = p.edgeTrim || 0;
+        const chordHalf = y => Math.sqrt(Math.max(0, R * R - y * y));
+        const raw = [];
+        const warnings = [];
+        let cw = 0;                                        // actual cant width used
+        if (p.pattern === "cant" && p.cantWidth > 0) {
+          // largest cant that fits a circle of radius R is the inscribed
+          // square: side = R*sqrt(2). Clamp user request and warn.
+          const maxCw = Math.SQRT2 * R;
+          cw = p.cantWidth;
+          if (cw > maxCw) {
+            warnings.push("Requested cant width " + p.cantWidth + " mm does not fit a Ø" +
+              p.dSmall + " mm log; clamped to " + Math.round(maxCw) + " mm (inscribed-square maximum).");
+            cw = maxCw;
+          }
+          // 1) cant resawn into horizontal boards of thickness t, centred
+          const nRows = Math.max(1, Math.floor((cw + k) / (t + k)));
+          const W = nRows * t + (nRows - 1) * k;          // sawn cant height
+          for (let i = 0; i < nRows; i++) {
+            raw.push({
+              y1: -W / 2 + i * (t + k), y2: -W / 2 + i * (t + k) + t,
+              orient: "h", isCant: true
+            });
+          }
+          // 2) horizontal flitch boards above and below the cant
+          let y = W / 2 + k;
+          while (y + t <= R) { raw.push({ y1: y, y2: y + t, orient: "h" }); y += t + k; }
+          let yl = -W / 2 - k;
+          while (yl - t >= -R) { raw.push({ y1: yl - t, y2: yl, orient: "h" }); yl -= (t + k); }
+          // 3) vertical side boards flanking the cant. Height limited to the
+          //    sawn cant height W and to the log chord at the slab's inner
+          //    face, so they never overlap the horizontal flitch boards.
+          let x = cw / 2 + k;
+          while (x + t <= R) {
+            const h = Math.min(W, 2 * chordHalf(x)) - 2 * e;
+            if (h <= 0) break;
+            raw.push({ x1: x, x2: x + t, y1: -h / 2, y2: h / 2, orient: "v" });
+            x += t + k;
+          }
+          x = -cw / 2 - k;
+          while (x - t >= -R) {
+            const h = Math.min(W, 2 * chordHalf(Math.abs(x))) - 2 * e;
+            if (h <= 0) break;
+            raw.push({ x1: x - t, x2: x, y1: -h / 2, y2: h / 2, orient: "v" });
+            x -= (t + k);
+          }
+        } else {
+          // through-and-through: centre board straddles the pith
+          raw.push({ y1: -t / 2, y2: t / 2, orient: "h" });
+          let y = t / 2 + k;
+          while (y + t <= R) { raw.push({ y1: y, y2: y + t, orient: "h" }); y += t + k; }
+          let yl = -t / 2 - k;
+          while (yl - t >= -R) { raw.push({ y1: yl - t, y2: yl, orient: "h" }); yl -= (t + k); }
+        }
+        // size horizontal boards by chord at their inner face; vertical boards
+        // are already sized; label everything in a stable, readable order
+        const horiz = raw.filter(b => b.orient === "h").sort((a, b) => b.y1 - a.y1);
+        const vert = raw.filter(b => b.orient === "v").sort((a, b) => b.x1 - a.x1);
+        const out = [];
+        let nb = 0, nc = 0, nl = 0, nr = 0;
+        for (const b of horiz) {
+          const yOut = Math.min(Math.abs(b.y1), Math.abs(b.y2));
+          // cant rows are trimmed to the cant width; flitch boards take the
+          // full chord at their inner face
+          const w = (b.isCant ? Math.min(2 * chordHalf(yOut), cw) : 2 * chordHalf(yOut)) - 2 * e;
+          if (w <= 0) continue;
+          b.x1 = -w / 2; b.x2 = w / 2;
+          b.label = b.isCant ? ("Cant row " + (++nc)) : ("Board " + (++nb));
+          out.push(b);
+        }
+        for (const b of vert) {
+          b.label = (b.x1 >= 0 ? "Side R" + (++nr) : "Side L" + (++nl));
+          out.push(b);
+        }
+        out.warnings = warnings;
+        return out;
+      }
+
+      // Prepared-board cache: for a given sawing layout the board geometry
+      // is fixed, so the grid-cell radii inside the log circle are computed
+      // once and reused across Monte-Carlo runs (only the heartwood radius
+      // changes between runs). Addition order matches rectRadial, so the
+      // results are bitwise identical but ~20x faster per run.
+      let PREP = { key: null, boards: null, warnings: [], Rmean: 0 };
+
+      function prepKey(p) {
+        return [p.dSmall, p.dLarge, p.thickness, p.kerf, p.edgeTrim, p.pattern, p.cantWidth].join("|");
+      }
+
+      function prepareBoards(p) {
+        const Rmean = (p.dSmall / 2 + p.dLarge / 2) / 2;
+        const layout = buildLayout(p);
+        const boards = layout.map(b => {
+          const radii = [];
+          const N = 60;
+          const dx = (b.x2 - b.x1) / N, dy = (b.y2 - b.y1) / N;
+          for (let i = 0; i < N; i++) {
+            const y = b.y1 + (i + 0.5) * dy;
+            for (let j = 0; j < N; j++) {
+              const x = b.x1 + (j + 0.5) * dx;
+              const rr = Math.sqrt(x * x + y * y);
+              if (rr <= Rmean) radii.push(rr);
+            }
+          }
+          const dA = dx * dy;
+          let rs = 0;
+          for (let k = 0; k < radii.length; k++) rs += radii[k];
+          return { b: b, radii: radii, dA: dA, area: radii.length * dA, rs: rs * dA };
+        });
+        return { boards: boards, warnings: layout.warnings || [], Rmean: Rmean };
+      }
+
+      // Main computation. p = {dSmall,dLarge,length,thickness,kerf,edgeTrim,
+      //   pattern,cantWidth, mcSap,mcHeart,rhoCore,rhoPerimeter,shrinkVol,heartFrac}
+      function compute(p) {
+        const key = prepKey(p);
+        if (PREP.key !== key) PREP = prepareBoards(p);
+        const Rmean = PREP.Rmean;
+        const Rhm = Rmean * p.heartFrac;          // heartwood radius at mean section
+
+        const boards = [];
+
+        PREP.boards.forEach((pb, idx) => {
+          const b = pb.b;
+          const A = pb.area * 1e-6;               // m^2 (mm^2 -> m^2)
+          if (A <= 0) return;
+          const Ir = pb.rs * 1e-9;                // m^3 (mm^3 -> m^3)
+          // heartwood sub-integrals from the cached cell radii (natural
+          // cell order, so identical to rectRadial's accumulation)
+          let cntH = 0, rsh = 0;
+          const radii = pb.radii;
+          for (let k = 0; k < radii.length; k++) {
+            const rr = radii[k];
+            if (rr <= Rhm) { cntH++; rsh += rr; }
+          }
+          const AH = cntH * pb.dA * 1e-6;
+          const IrH = rsh * pb.dA * 1e-9;
+          const Rm = Rmean / 1000;              // m
+          // Densities given as oven-dry density (oven-dry mass / oven-dry
+          // volume). Internally the sawn board has its green volume, so
+          // convert to basic density: rho_b = rho_od * V_od / V_green.
+          const odF = 1 - (p.shrinkVol || 0) / 100;
+          const rbC = p.rhoCore * odF, rbP = p.rhoPerimeter * odF;
+          // linear radial basic density rho(r) = rbC + (rbP - rbC) * r / R
+          const dryPerM = rbC * A + (rbP - rbC) * Ir / Rm;   // kg per m length
+          const dhPerM = rbC * AH + (rbP - rbC) * IrH / Rm; // heartwood part
+          const dsPerM = dryPerM - dhPerM;                  // sapwood part
+          const dry = dryPerM * p.length;
+          const water = (dhPerM * p.mcHeart + dsPerM * p.mcSap) / 100 * p.length;
+          const volG = A * p.length;                        // green volume, m^3
+          const mc = dry > 0 ? 100 * water / dry : 0;        // % dry basis
+          const rhoOvenDry = dry / (volG * odF);             // kg/m^3, oven-dry volume basis
+          const rhoGreen = (dry + water) / volG;             // kg/m^3, green volume basis
+          const isV = b.orient === "v";
+          boards.push({
+            no: idx + 1, label: b.label, isCant: !!b.isCant,
+            y1: +b.y1.toFixed(2), y2: +b.y2.toFixed(2),
+            x1: +b.x1.toFixed(2), x2: +b.x2.toFixed(2),
+            thickness: +(isV ? b.x2 - b.x1 : b.y2 - b.y1).toFixed(1),
+            width: +((isV ? b.y2 - b.y1 : b.x2 - b.x1)).toFixed(0),
+            length: p.length,
+            heartPct: 100 * AH / A, sapPct: 100 * (A - AH) / A,
+            volume: volG, dryMass: dry, waterMass: water,
+            mc: mc, rhoOvenDry: rhoOvenDry, rhoGreen: rhoGreen, greenWeight: dry + water
+          });
+        });
+
+        return {
+          boards: boards,
+          warnings: PREP.warnings
+        };
+      }
+
+      return { SPECIES, buildLayout, compute, rectInside, rectRadial, sampleHeartFrac, sampleLogDensity, sampleMc, gaussian };
+    })();
+  </script>
+  <script id="ui">
+    /* =================== UI wiring =================== */
+    const $ = id => document.getElementById(id);
+    const fmt = (v, d) => (v == null || !isFinite(v)) ? "—" : Number(v).toFixed(d);
+    let LAST = null;
+
+    // populate species dropdown + defaults
+    (function init() {
+      const sel = $("species");
+      Object.keys(ENGINE.SPECIES).forEach(k => {
+        const o = document.createElement("option"); o.value = k; o.textContent = k;
+        sel.appendChild(o);
+      });
+      sel.addEventListener("change", () => applySpecies(ENGINE.SPECIES[sel.value]));
+      applySpecies(ENGINE.SPECIES[sel.value]);
+      $("calc").addEventListener("click", run);
+      $("csv").addEventListener("click", exportCsv);
+      $("print").addEventListener("click", () => window.print());
+    })();
+
+    function applySpecies(s) {
+      $("mcSap").value = s.mcSap; $("mcHeart").value = s.mcHeart;
+      $("rhoMin").value = s.rhoMin; $("rhoMax").value = s.rhoMax;
+      $("heartFracMin").value = s.heartFracMin; $("heartFracMax").value = s.heartFracMax;
+      // shrinkVol stays a species-library property (not user-editable here):
+      // it only converts oven-dry densities to green sawn volume; it does not
+      // affect board densities or MC.
+    }
+
+    function readParams() {
+      let fMin = +$("heartFracMin").value, fMax = +$("heartFracMax").value;
+      if (fMin > fMax) { const t = fMin; fMin = fMax; fMax = t; }   // tolerate swap
+      let rMin = +$("rhoMin").value, rMax = +$("rhoMax").value;
+      if (rMin > rMax) { const t = rMin; rMin = rMax; rMax = t; }   // tolerate swap
+      const lib = ENGINE.SPECIES[$("species").value] || {};
+      return {
+        species: $("species").value,
+        mcSap: +$("mcSap").value, mcHeart: +$("mcHeart").value,
+        rhoMin: rMin, rhoMax: rMax,
+        shrinkVol: lib.shrinkVol || 0,
+        heartFracMin: fMin, heartFracMax: fMax,
+        dSmall: +$("dSmall").value, dLarge: +$("dLarge").value,
+        length: +$("length").value,
+        pattern: $("pattern").value,
+        thickness: +$("thickness").value, kerf: +$("kerf").value,
+        edgeTrim: +$("edgeTrim").value, cantWidth: +$("cantWidth").value
+      };
+    }
+
+    // 100-run Monte-Carlo between logs. Per log: heartwood fraction, a
+    // density range (within-log radial range = 0.7 x species range, placed
+    // randomly inside the species range) and sap/heart MCs (SD = 5 % of the
+    // given values). Geometry is invariant to these, so board indexes stay
+    // aligned across runs.
+    function buildDistribution(p, n) {
+      n = n || 1000;
+      const fracs = ENGINE.sampleHeartFrac(p.heartFracMin, p.heartFracMax, n);
+      const dens = ENGINE.sampleLogDensity(p.rhoMin, p.rhoMax, n, 43);
+      const mcSapV = ENGINE.sampleMc(p.mcSap, n, 44);
+      const mcHeartV = ENGINE.sampleMc(p.mcHeart, n, 45);
+      const Rs = Math.max(p.rhoMax - p.rhoMin, 0);
+      const base = ENGINE.compute({
+        ...p,
+        heartFrac: (p.heartFracMin + p.heartFracMax) / 2,
+        rhoCore: p.rhoMin + 0.15 * Rs,           // centre of the allowed log interval
+        rhoPerimeter: p.rhoMin + 0.15 * Rs + 0.7 * Rs,
+        mcSap: p.mcSap, mcHeart: p.mcHeart
+      });
+      const perBoard = base.boards.map(b => ({ label: b.label, tag: shortTag(b), values: [], rhos: [] }));
+      for (let i = 0; i < n; i++) {
+        const r = ENGINE.compute({
+          ...p,
+          heartFrac: fracs[i],
+          rhoCore: dens.cores[i], rhoPerimeter: dens.pers[i],
+          mcSap: mcSapV[i], mcHeart: mcHeartV[i]
+        });
+        r.boards.forEach((b, j) => {
+          perBoard[j].values.push(b.mc);
+          perBoard[j].rhos.push(b.rhoOvenDry);
+        });
+      }
+      return { base, fracs, perBoard, dens, mcSapV, mcHeartV };
+    }
+
+    function run() {
+      const p = readParams();
+      if (!(p.dSmall > 0) || !(p.thickness > 0) || !(p.length > 0)) {
+        $("boardTable").innerHTML = '<p class="note">Please enter at least small-end diameter, board thickness and log length.</p>';
+        return;
+      }
+      if (!p.dLarge) p.dLarge = p.dSmall;
+      if (!(p.shrinkVol >= 0 && p.shrinkVol < 50)) {
+        $("boardTable").innerHTML = '<p class="note">Volumetric shrinkage must be between 0 and 50 %.</p>';
+        return;
+      }
+      if (!(p.heartFracMax > 0) || !(p.heartFracMin >= 0) || p.heartFracMax > 1 ||
+        !(p.heartFracMax >= p.heartFracMin)) {
+        $("boardTable").innerHTML = '<p class="note">Heartwood fraction must satisfy 0 ≤ min ≤ max ≤ 1.</p>';
+        return;
+      }
+      LAST = { p, ...buildDistribution(p, 1000) };
+      LAST.sel = LAST.perBoard.map(() => true);   // all boards selected initially
+      renderAll();
+    }
+
+    function renderAll() {
+      const p = LAST.p, r = LAST.base;
+      let warnHtml = "";
+      for (const w of r.warnings) warnHtml += '<p class="note" style="color:#b3541e">⚠ ' + w + '</p>';
+      if (!r.boards.length) {
+        $("boardTable").innerHTML = warnHtml +
+          '<p class="note">No boards fit this log with the chosen thickness/kerf/cant. ' +
+          'Reduce the board thickness, cant width or kerf, or use a larger log.</p>';
+        $("chart").innerHTML = ""; $("cross").innerHTML = "";
+        $("boardSelect").innerHTML = ""; $("chartRho").innerHTML = "";
+        return;
+      }
+      renderTable(warnHtml);
+      drawCross();
+      renderSelector();
+      renderHistogram();
+      renderRhoHistogram();
+    }
+
+    // stats over an array of MC values
+    function stats(a) {
+      const n = a.length;
+      const mean = a.reduce((s, v) => s + v, 0) / n;
+      const sd = Math.sqrt(a.reduce((s, v) => s + (v - mean) * (v - mean), 0) / n);
+      return { mean, sd, min: Math.min(...a), max: Math.max(...a) };
+    }
+
+    function renderTable(warnHtml) {
+      const r = LAST.base;
+      let html = warnHtml + '<table><tr><th>Board</th><th>Thickness (mm)</th><th>Width (mm)</th><th>Length (m)</th>' +
+        '<th>Heartwood %</th><th>Sapwood %</th><th>MC % avg (min–max)</th>' +
+        '<th>Oven-dry density kg/m³ — avg (SD)</th></tr>';
+      LAST.perBoard.forEach((pb, i) => {
+        const b = r.boards[i];
+        const mc = stats(pb.values), rho = stats(pb.rhos);
+        html += '<tr><td>' + b.label + '</td><td>' + fmt(b.thickness, 1) +
+          '</td><td>' + fmt(b.width, 0) + '</td><td>' + fmt(b.length, 2) +
+          '</td><td>' + fmt(b.heartPct, 0) + '</td><td>' + fmt(b.sapPct, 0) +
+          '</td><td><b>' + fmt(mc.mean, 0) + '</b> (' + fmt(mc.min, 0) + '–' + fmt(mc.max, 0) + ')</td>' +
+          '<td><b>' + fmt(rho.mean, 0) + '</b> (' + fmt(rho.sd, 0) + ')</td></tr>';
+      });
+      html += '</table><p class="note">Oven-dry density = oven-dry mass / oven-dry volume, interpolated ' +
+        'linearly from core to perimeter. Between logs, the radial density range is 0.7 × the species ' +
+        'range and is placed randomly inside it, so each board’s density varies between logs — shown ' +
+        'as avg (SD). Heart/Sap % are at the mean fraction.</p>';
+      $("boardTable").innerHTML = html;
+    }
+
+    // Short tag shared by the cross-section diagram and the MC chart.
+    function shortTag(b) {
+      return b.isCant ? b.label.replace("Cant row ", "C")
+        : b.label.startsWith("Side") ? b.label.replace("Side ", "")
+          : b.label.replace("Board ", "B");
+    }
+
+    // Cross-section visualisation at mid-length of the log:
+    // sapwood ring, heartwood disc, and board/cant placement.
+    function drawCross() {
+      const p = LAST.p, r = LAST.base;
+      const Rmid = (p.dSmall / 2 + p.dLarge / 2) / 2;      // radius at mid-length
+      const rhMin = Rmid * p.heartFracMin;                  // always-heartwood radius
+      const rhMax = Rmid * p.heartFracMax;                  // maximum heartwood radius
+      const S = 420, H = 455, C = S / 2;
+      const sc = (C - 24) / Rmid;                           // mm -> px
+      let s = '<h2>Cross-section at mid-length of the log</h2>';
+      s += '<svg viewBox="0 0 ' + S + ' ' + H + '" width="' + S + '" style="max-width:100%">';
+      // sapwood annulus (green), then Hmax disc (light brown), then Hmin disc (darker)
+      s += '<circle cx="' + C + '" cy="' + C + '" r="' + (Rmid * sc) + '" fill="#a9c79a" stroke="#4a5c42" stroke-width="1.5"></circle>';
+      s += '<circle cx="' + C + '" cy="' + C + '" r="' + (rhMax * sc) + '" fill="#d2b077" stroke="#8a6a3f" stroke-width="1"></circle>';
+      s += '<circle cx="' + C + '" cy="' + C + '" r="' + (rhMin * sc) + '" fill="#b9904f" stroke="#8a6a3f" stroke-width="1"></circle>';
+      const gap = (rhMax - rhMin) * sc < 14 ? 16 : 0;   // avoid label overlap
+      s += '<text x="' + C + '" y="' + (C - rhMin * sc - 4) + '" font-size="10" text-anchor="middle" fill="#3f3119">Hmin ' + fmt(p.heartFracMin, 2) + '</text>';
+      s += '<text x="' + C + '" y="' + (C - rhMax * sc - 4 - gap) + '" font-size="10" text-anchor="middle" fill="#5a4a2f">Hmax ' + fmt(p.heartFracMax, 2) + '</text>';
+      // pith marker
+      s += '<line x1="' + (C - 5) + '" y1="' + C + '" x2="' + (C + 5) + '" y2="' + C + '" stroke="#5a4a2f"></line>';
+      s += '<line x1="' + C + '" y1="' + (C - 5) + '" x2="' + C + '" y2="' + (C + 5) + '" stroke="#5a4a2f"></line>';
+      // boards (translucent, numbered). SVG y grows downward -> flip.
+      for (const b of r.boards) {
+        const x = C + b.x1 * sc, w = (b.x2 - b.x1) * sc;
+        const y = C - b.y2 * sc, h = (b.y2 - b.y1) * sc;
+        s += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + w.toFixed(1) +
+          '" height="' + h.toFixed(1) + '" fill="' + (b.isCant ? "#2e6b34" : "#2b6cb0") +
+          '" fill-opacity="0.28" stroke="' + (b.isCant ? "#2e6b34" : "#2b6cb0") + '" stroke-width="1.2"></rect>';
+        if (w > 26 && h > 16) {
+          s += '<text x="' + (x + w / 2).toFixed(1) + '" y="' + (y + h / 2 + 4).toFixed(1) +
+            '" font-size="11" text-anchor="middle" fill="#1c241c">' + shortTag(b) + '</text>';
+        }
+      }
+      // legend + diameter ticks
+      s += '<text x="8" y="' + (H - 24) + '" font-size="11" fill="#1c241c">□ side/flitch boards · ■ cant rows · green ring = sapwood · light brown = Hmax zone · dark brown = always heartwood (Hmin)</text>';
+      s += '<text x="8" y="' + (H - 8) + '" font-size="11" fill="#1c241c">Ø' + p.dSmall + '/' + p.dLarge +
+        ' mm (mid-length Ø' + Math.round(2 * Rmid) + ' mm) · board widths limited by the small end</text>';
+      s += '</svg>';
+      $("cross").innerHTML = s;
+    }
+
+    // ---- board selection + moisture-content distribution ----------------
+    function renderSelector() {
+      let s = '<h2>Boards included in the moisture content and oven dry density distribution</h2><div style="display:flex;flex-wrap:wrap;gap:2px">';
+      LAST.perBoard.forEach((pb, i) => {
+        s += '<label style="display:flex;align-items:center;gap:4px;font-size:.85rem;margin:0 10px 0 0">' +
+          '<input type="checkbox" id="selb' + i + '" ' + (LAST.sel[i] ? "checked" : "") +
+          ' style="width:auto" onchange="onSel(' + i + ', this.checked)"> ' + pb.tag + '</label>';
+      });
+      s += '</div><p class="note">Histogram pools the MC values of the selected boards over all ' +
+        LAST.fracs.length + ' runs. Select all for the whole-log distribution, or a single board for its own.</p>';
+      $("boardSelect").innerHTML = s;
+    }
+
+    function onSel(i, checked) { LAST.sel[i] = checked; renderHistogram(); renderRhoHistogram(); }
+
+    function selectedValues() {
+      const v = [];
+      LAST.perBoard.forEach((pb, i) => { if (LAST.sel[i]) v.push(...pb.values); });
+      return v;
+    }
+    function selectedRhoValues() {
+      // board densities vary between logs again (log density ranges are placed
+      // randomly within the species range), so pool values over runs
+      const v = [];
+      LAST.perBoard.forEach((pb, i) => { if (LAST.sel[i]) v.push(...pb.rhos); });
+      return v;
+    }
+
+    // Generic histogram renderer, styled like the reference figure.
+    // elId: target div, vals: data, xLabel: heading AND x-axis caption,
+    // unit, decimals for stats, capText: full caption suffix.
+    function drawHistogram(elId, vals, xLabel, unit, decimals, capText) {
+      if (!vals.length) { $(elId).innerHTML = "<p class='note'>Select at least one board.</p>"; return; }
+      const st = stats(vals);
+      const W = 640, H = 300, padL = 46, padR = 16, padT = 14, padB = 52;
+      const lo = st.min, hi = Math.max(st.max, st.min + 1e-6), span = hi - lo;
+      const nBins = 12;
+      const binw = span / nBins;
+      const bins = new Array(nBins).fill(0);
+      for (const v of vals) bins[Math.min(nBins - 1, Math.floor((v - lo) / binw))]++;
+      const maxCount = Math.max(...bins);
+      const plotW = W - padL - padR, plotH = H - padT - padB;
+      const y = c => padT + plotH * (1 - c / maxCount);
+      const step = [1, 2, 5, 10, 20, 25, 50, 100].find(sv => span / sv <= 12) || 100;
+      let s = '<h2>' + xLabel + '</h2><svg viewBox="0 0 ' + W + ' ' + H + '" width="100%">';
+      for (let i = 0; i < nBins; i++) {
+        const x0 = padL + i * (plotW / nBins);
+        s += '<rect x="' + x0.toFixed(1) + '" y="' + y(bins[i]).toFixed(1) + '" width="' +
+          (plotW / nBins - 1).toFixed(1) + '" height="' + (padT + plotH - y(bins[i])).toFixed(1) +
+          '" fill="#b5d5ee" stroke="#4a7ba6" stroke-width="1"></rect>';
+      }
+      // axes
+      s += '<line x1="' + padL + '" y1="' + (padT + plotH) + '" x2="' + (W - padR) + '" y2="' + (padT + plotH) + '" stroke="#333"></line>';
+      s += '<line x1="' + padL + '" y1="' + padT + '" x2="' + padL + '" y2="' + (padT + plotH) + '" stroke="#333"></line>';
+      for (let t = Math.ceil(lo / step) * step; t <= hi + 1e-9; t += step) {
+        const x = padL + (t - lo) / span * plotW;
+        s += '<line x1="' + x.toFixed(1) + '" y1="' + (padT + plotH) + '" x2="' + x.toFixed(1) +
+          '" y2="' + (padT + plotH + 4) + '" stroke="#333"></line>' +
+          '<text x="' + x.toFixed(1) + '" y="' + (padT + plotH + 16) + '" font-size="10" text-anchor="middle">' + Math.round(t) + '</text>';
+      }
+      for (let c = 0; c <= maxCount; c += Math.max(1, Math.ceil(maxCount / 5))) {
+        s += '<text x="' + (padL - 6) + '" y="' + (y(c) + 3) + '" font-size="10" text-anchor="end">' + c + '</text>';
+      }
+      // stats box (top right), like the reference figure
+      s += '<g font-size="12" fill="#1c241c">' +
+        '<text x="' + (W - padR - 150) + '" y="' + (padT + 16) + '">Avg.  ' + fmt(st.mean, decimals) + ' ' + unit + '</text>' +
+        '<text x="' + (W - padR - 150) + '" y="' + (padT + 32) + '">SDev. ' + fmt(st.sd, decimals) + ' ' + unit + '</text>' +
+        '<text x="' + (W - padR - 150) + '" y="' + (padT + 48) + '">Min.  ' + fmt(st.min, decimals) + ' ' + unit + '</text>' +
+        '<text x="' + (W - padR - 150) + '" y="' + (padT + 64) + '">Max.  ' + fmt(st.max, decimals) + ' ' + unit + '</text></g>';
+      s += '<text x="' + (padL + plotW / 2) + '" y="' + (H - 8) + '" font-size="12" text-anchor="middle">' + xLabel + ' (' + unit + ')</text>';
+      s += '<text x="' + padL + '" y="' + (H - 26) + '" font-size="10" fill="#5b655b">' + capText + '</text>';
+      s += '</svg>';
+      $(elId).innerHTML = s;
+    }
+
+    function renderHistogram() {
+      const sel = LAST.perBoard.filter((pb, i) => LAST.sel[i]).map(pb => pb.tag).join(", ");
+      const vals = selectedValues();
+      drawHistogram("chart", vals, "Moisture content distribution", "%", 0,
+        "Boards: " + sel + " · " + vals.length + " values from " + LAST.fracs.length + " runs");
+    }
+
+    function renderRhoHistogram() {
+      const sel = LAST.perBoard.filter((pb, i) => LAST.sel[i]).map(pb => pb.tag).join(", ");
+      const vals = selectedRhoValues();
+      drawHistogram("chartRho", vals, "Oven-dry density distribution (OD volume)", "kg/m³", 0,
+        "Boards: " + sel + " · " + vals.length + " values from " + LAST.fracs.length + " runs");
+    }
+
+    function exportCsv() {
+      if (!LAST) { run(); if (!LAST) return; }
+      const rows = [["item", "thickness_mm", "width_mm", "length_m", "heartwood_pct_mean",
+        "MC_avg_pct", "MC_min_pct", "MC_max_pct", "rhoOvenDry_ODvol_kg_m3"]];
+      LAST.base.boards.forEach((b, i) => {
+        const mc = stats(LAST.perBoard[i].values);
+        rows.push([b.label, b.thickness, b.width, b.length, fmt(b.heartPct, 1),
+        fmt(mc.mean, 1), fmt(mc.min, 1), fmt(mc.max, 1), fmt(b.rhoOvenDry, 1)]);
+      });
+      const csv = rows.map(r => r.join(",")).join("\n");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+      a.download = "greendensmc_results.csv"; a.click();
+    }
+  </script>
+</body>
+
+</html>
