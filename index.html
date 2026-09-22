@@ -682,7 +682,11 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
     }
 
     function renderTable(warnHtml) {
-      const r = LAST.base;
+      const p = LAST.p, r = LAST.base;
+      // volumes: lumber = sum of board volumes; log = truncated cone
+      const lumberVol = r.boards.reduce((s, b) => s + b.volume, 0);
+      const D0 = p.dSmall / 1000, D1 = p.dLarge / 1000;
+      const logVol = Math.PI / 12 * p.length * (D0 * D0 + D0 * D1 + D1 * D1);
       let html = warnHtml + '<table><tr><th>Board</th><th>Thickness (mm)</th><th>Width (mm)</th><th>Length (m)</th>' +
         '<th>Heartwood %</th><th>Sapwood %</th><th>MC % avg (min–max)</th>' +
         '<th>Oven-dry density kg/m³ — avg (SD)</th></tr>';
@@ -695,7 +699,10 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
           '</td><td><b>' + fmt(mc.mean, 0) + '</b> (' + fmt(mc.min, 0) + '–' + fmt(mc.max, 0) + ')</td>' +
           '<td><b>' + fmt(rho.mean, 0) + '</b> (' + fmt(rho.sd, 0) + ')</td></tr>';
       });
-      html += '</table><p class="note">Oven-dry density = oven-dry mass / oven-dry volume, interpolated ' +
+      html += '</table>' +
+    '<p style="font-size:.9rem;margin:8px 0 0"><b>Total lumber volume</b> ' +
+    fmt(lumberVol, 3) + ' m³ · <b>Total log volume</b> ' + fmt(logVol, 2) + ' m³</p>' +
+    '<p class="note">Oven-dry density = oven-dry mass / oven-dry volume, interpolated ' +
         'linearly from core to perimeter. Between logs, the radial density range is 0.7 × the species ' +
         'range and is placed randomly inside it, so each board’s density varies between logs — shown ' +
         'as avg (SD). Heart/Sap % are at the mean fraction.</p>';
