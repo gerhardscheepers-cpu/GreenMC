@@ -192,23 +192,23 @@
       </div>
       <h2 style="margin-top:14px">Log</h2>
       <div class="row">
-        <div><label>Small-end diameter (mm)</label><input type="text" inputmode="decimal" id="dSmall" step="5"></div>
-        <div><label>Large-end diameter (mm)</label><input type="text" inputmode="decimal" id="dLarge" step="5"></div>
+        <div><label>Small-end diameter (mm)</label><input type="text" inputmode="decimal" id="dSmall" step="5" value="220"></div>
+        <div><label>Large-end diameter (mm)</label><input type="text" inputmode="decimal" id="dLarge" step="5" value="250"></div>
       </div>
-      <label>Log length (m)</label><input type="text" inputmode="decimal" id="length" step="0.1">
+      <label>Log length (m)</label><input type="text" inputmode="decimal" id="length" step="0.1" value="4.2">
       <h2 style="margin-top:14px">Sawing pattern</h2>
       <label>Pattern</label>
       <select id="pattern">
         <option value="tnt">Through-and-through (live sawing)</option>
-        <option value="cant">Cant + side boards</option>
+        <option value="cant" selected>Cant + side boards</option>
       </select>
       <div class="row">
-        <div><label>Board thickness (mm)</label><input type="text" inputmode="decimal" id="thickness" step="1"></div>
-        <div><label>Kerf (mm)</label><input type="text" inputmode="decimal" id="kerf" step="0.1"></div>
+        <div><label>Board thickness (mm)</label><input type="text" inputmode="decimal" id="thickness" step="1" value="50"></div>
+        <div><label>Kerf (mm)</label><input type="text" inputmode="decimal" id="kerf" step="0.1" value="2.5"></div>
       </div>
       <div class="row">
-        <div><label>Edge trim each side (mm)</label><input type="text" inputmode="decimal" id="edgeTrim" step="5"></div>
-        <div><label>Cant width (mm, 0 = none)</label><input type="text" inputmode="decimal" id="cantWidth" step="5">
+        <div><label>Edge trim each side (mm)</label><input type="text" inputmode="decimal" id="edgeTrim" step="5" value="0"></div>
+        <div><label>Cant width (mm, 0 = none)</label><input type="text" inputmode="decimal" id="cantWidth" step="5" value="155">
         </div>
       </div>
       <button id="calc">Calculate</button>
@@ -540,7 +540,7 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
     // separator (and strips any spaces), so mill staff on any locale
     // setting get the same behaviour.
     const num = id => {
-      const v = ($(id).value || "").trim().replace(/\s/g, "").replace(",", ".");
+      const v = String($(id).value == null ? "" : $(id).value).trim().replace(/\s/g, "").replace(",", ".");
       return v === "" ? NaN : Number(v);
     };
     let LAST = null;
@@ -557,6 +557,7 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
       $("calc").addEventListener("click", run);
       $("csv").addEventListener("click", exportCsv);
       $("print").addEventListener("click", () => window.print());
+      run();   // show results immediately with the built-in defaults
     })();
 
     function applySpecies(s) {
