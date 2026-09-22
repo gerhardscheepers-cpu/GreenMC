@@ -83,6 +83,11 @@
       font-size: .9rem;
     }
 
+    input.bad {
+      border-color: #c0392b;
+      background: #fdecea;
+    }
+
     .row {
       display: flex;
       gap: 8px;
@@ -161,7 +166,7 @@
   <header>
     <h1>Green moisture content and oven dry density estimator</h1>
     <p>Rough estimator of green moisture content and oven dry density via log dimension, sawing pattern and
-      sapwood/heartwood properties.</p>
+      sapwood/heartwood properties of 1000 logs.</p>
   </header>
   <main>
     <section class="card noprint" id="inputs">
@@ -169,28 +174,28 @@
       <label for="species">Species (defaults editable)</label>
       <select id="species"></select>
       <div class="row">
-        <div><label>Sapwood MC (%)</label><input type="number" id="mcSap" step="1"></div>
-        <div><label>Heartwood MC (%)</label><input type="number" id="mcHeart" step="1"></div>
+        <div><label>Sapwood MC (%)</label><input type="text" inputmode="decimal" id="mcSap" step="1"></div>
+        <div><label>Heartwood MC (%)</label><input type="text" inputmode="decimal" id="mcHeart" step="1"></div>
       </div>
       <div class="row">
-        <div><label>Species minimum oven-dry density (kg/m³, OD volume)</label><input type="number" id="rhoMin"
-            step="5"></div>
-        <div><label>Species maximum oven-dry density (kg/m³, OD volume)</label><input type="number" id="rhoMax"
-            step="5"></div>
+        <div><label>Species minimum oven-dry density (kg/m³, OD volume)</label><input type="text" inputmode="decimal"
+            id="rhoMin" step="5"></div>
+        <div><label>Species maximum oven-dry density (kg/m³, OD volume)</label><input type="text" inputmode="decimal"
+            id="rhoMax" step="5"></div>
       </div>
       <label>Heartwood diameter fraction — min and max (0–1)</label>
       <div class="row">
-        <div><label style="margin-top:0">Minimum</label><input type="number" id="heartFracMin" step="0.05" min="0"
-            max="1"></div>
-        <div><label style="margin-top:0">Maximum</label><input type="number" id="heartFracMax" step="0.05" min="0"
-            max="1"></div>
+        <div><label style="margin-top:0">Minimum</label><input type="text" inputmode="decimal" id="heartFracMin"
+            step="0.05" min="0" max="1"></div>
+        <div><label style="margin-top:0">Maximum</label><input type="text" inputmode="decimal" id="heartFracMax"
+            step="0.05" min="0" max="1"></div>
       </div>
       <h2 style="margin-top:14px">Log</h2>
       <div class="row">
-        <div><label>Small-end diameter (mm)</label><input type="number" id="dSmall" step="5"></div>
-        <div><label>Large-end diameter (mm)</label><input type="number" id="dLarge" step="5"></div>
+        <div><label>Small-end diameter (mm)</label><input type="text" inputmode="decimal" id="dSmall" step="5"></div>
+        <div><label>Large-end diameter (mm)</label><input type="text" inputmode="decimal" id="dLarge" step="5"></div>
       </div>
-      <label>Log length (m)</label><input type="number" id="length" step="0.1">
+      <label>Log length (m)</label><input type="text" inputmode="decimal" id="length" step="0.1">
       <h2 style="margin-top:14px">Sawing pattern</h2>
       <label>Pattern</label>
       <select id="pattern">
@@ -198,12 +203,13 @@
         <option value="cant">Cant + side boards</option>
       </select>
       <div class="row">
-        <div><label>Board thickness (mm)</label><input type="number" id="thickness" step="1"></div>
-        <div><label>Kerf (mm)</label><input type="number" id="kerf" step="0.1"></div>
+        <div><label>Board thickness (mm)</label><input type="text" inputmode="decimal" id="thickness" step="1"></div>
+        <div><label>Kerf (mm)</label><input type="text" inputmode="decimal" id="kerf" step="0.1"></div>
       </div>
       <div class="row">
-        <div><label>Edge trim each side (mm)</label><input type="number" id="edgeTrim" step="5"></div>
-        <div><label>Cant width (mm, 0 = none)</label><input type="number" id="cantWidth" step="5"></div>
+        <div><label>Edge trim each side (mm)</label><input type="text" inputmode="decimal" id="edgeTrim" step="5"></div>
+        <div><label>Cant width (mm, 0 = none)</label><input type="text" inputmode="decimal" id="cantWidth" step="5">
+        </div>
       </div>
       <button id="calc">Calculate</button>
       <button id="csv" class="secondary">Export CSV</button>
@@ -217,7 +223,7 @@
         centred on (min + max)/2 with SD
         = (max − min)/4, kept within [min, max]; sampling is seeded and therefore reproducible. Expected accuracy
         roughly ±10–15 % on MC — for charge planning and logistics, not payment grading. Calibrate species values
-        against your own mill measurements.</p>
+        against your own mill measurements. Numeric inputs accept both "." and "," as decimal separator.</p>
     </section>
     <section class="card" id="results">
       <h2>Per-board results</h2>
@@ -530,6 +536,13 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
     /* =================== UI wiring =================== */
     const $ = id => document.getElementById(id);
     const fmt = (v, d) => (v == null || !isFinite(v)) ? "—" : Number(v).toFixed(d);
+    // locale-proof numeric read: accepts both "." and "," as decimal
+    // separator (and strips any spaces), so mill staff on any locale
+    // setting get the same behaviour.
+    const num = id => {
+      const v = ($(id).value || "").trim().replace(/\s/g, "").replace(",", ".");
+      return v === "" ? NaN : Number(v);
+    };
     let LAST = null;
 
     // populate species dropdown + defaults
@@ -556,22 +569,22 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
     }
 
     function readParams() {
-      let fMin = +$("heartFracMin").value, fMax = +$("heartFracMax").value;
+      let fMin = num("heartFracMin"), fMax = num("heartFracMax");
       if (fMin > fMax) { const t = fMin; fMin = fMax; fMax = t; }   // tolerate swap
-      let rMin = +$("rhoMin").value, rMax = +$("rhoMax").value;
+      let rMin = num("rhoMin"), rMax = num("rhoMax");
       if (rMin > rMax) { const t = rMin; rMin = rMax; rMax = t; }   // tolerate swap
       const lib = ENGINE.SPECIES[$("species").value] || {};
       return {
         species: $("species").value,
-        mcSap: +$("mcSap").value, mcHeart: +$("mcHeart").value,
+        mcSap: num("mcSap"), mcHeart: num("mcHeart"),
         rhoMin: rMin, rhoMax: rMax,
         shrinkVol: lib.shrinkVol || 0,
         heartFracMin: fMin, heartFracMax: fMax,
-        dSmall: +$("dSmall").value, dLarge: +$("dLarge").value,
-        length: +$("length").value,
+        dSmall: num("dSmall"), dLarge: num("dLarge"),
+        length: num("length"),
         pattern: $("pattern").value,
-        thickness: +$("thickness").value, kerf: +$("kerf").value,
-        edgeTrim: +$("edgeTrim").value, cantWidth: +$("cantWidth").value
+        thickness: num("thickness"), kerf: num("kerf"),
+        edgeTrim: num("edgeTrim"), cantWidth: num("cantWidth")
       };
     }
 
@@ -612,20 +625,30 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
 
     function run() {
       const p = readParams();
-      if (!(p.dSmall > 0) || !(p.thickness > 0) || !(p.length > 0)) {
-        $("boardTable").innerHTML = '<p class="note">Please enter at least small-end diameter, board thickness and log length.</p>';
+      if (!isFinite(p.dLarge)) p.dLarge = p.dSmall;   // blank = same as small end
+      // validate every numeric field; highlight the ones that are missing
+      // or unparseable (e.g. wrong decimal character)
+      const checks = [
+        ["dSmall", v => v > 0], ["dLarge", v => v >= 0], ["length", v => v > 0],
+        ["thickness", v => v > 0], ["kerf", v => v >= 0], ["edgeTrim", v => v >= 0],
+        ["cantWidth", v => v >= 0],
+        ["mcSap", v => v > 0], ["mcHeart", v => v > 0],
+        ["rhoMin", v => v > 0], ["rhoMax", v => v > 0],
+        ["heartFracMin", v => v >= 0 && v <= 1], ["heartFracMax", v => v > 0 && v <= 1]
+      ];
+      let bad = [];
+      for (const [id, ok] of checks) {
+        const el = $(id), v = p[id];
+        if (!ok(v)) { el.classList.add("bad"); bad.push(id); }
+        else el.classList.remove("bad");
+      }
+      if (bad.length) {
+        $("boardTable").innerHTML = '<p class="note" style="color:#b3541e">⚠ Please check the highlighted input fields' +
+          ' (highlighted: ' + bad.join(", ") + '). Both "." and "," work as decimal separator; ' +
+          'small-end diameter, board thickness and log length are required.</p>';
         return;
       }
-      if (!p.dLarge) p.dLarge = p.dSmall;
-      if (!(p.shrinkVol >= 0 && p.shrinkVol < 50)) {
-        $("boardTable").innerHTML = '<p class="note">Volumetric shrinkage must be between 0 and 50 %.</p>';
-        return;
-      }
-      if (!(p.heartFracMax > 0) || !(p.heartFracMin >= 0) || p.heartFracMax > 1 ||
-        !(p.heartFracMax >= p.heartFracMin)) {
-        $("boardTable").innerHTML = '<p class="note">Heartwood fraction must satisfy 0 ≤ min ≤ max ≤ 1.</p>';
-        return;
-      }
+      $("boardTable").innerHTML = "";   // clear any previous message
       LAST = { p, ...buildDistribution(p, 1000) };
       LAST.sel = LAST.perBoard.map(() => true);   // all boards selected initially
       renderAll();
