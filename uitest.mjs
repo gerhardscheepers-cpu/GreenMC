@@ -4,21 +4,81 @@ const html = readFileSync("index.html", "utf8");
 const engineSrc = html.match(/<script id="engine">([\s\S]*?)<\/script>/)[1];
 const uiSrc = html.match(/<script id="ui">([\s\S]*?)<\/script>/)[1];
 
-// minimal DOM stub: getElementById returns an object capturing innerHTML
+// ---------- minimal but faithful DOM stub ----------
+// In a browser <input>.value is always a string (readParams' num() coerces it)
+// and a <select>'s value is its selected / first option. Mirroring that here
+// means the load-time run() exercises exactly the code path a browser does.
+function attrs(tag) {
+  const a = {};
+  tag.replace(/([\w-]+)="([^"]*)"/g, (m, k, v) => { a[k] = v; return m; });
+  return a;
+}
+const inputDefaults = new Map();
+for (const m of html.matchAll(/<input\b[^>]*>/g)) {
+  const a = attrs(m[0]);
+  if (a.id) inputDefaults.set(a.id, a.value === undefined ? "" : a.value);
+}
+function selectDefault(id) {
+  const m = html.match(new RegExp('<select[^>]*id="' + id + '"[^>]*>([\\s\\S]*?)</select>'));
+  if (!m) return "";
+  const sel = m[1].match(/<option[^>]*\bselected\b[^>]*>/);
+  if (sel) return attrs(sel[0]).value || "";
+  const first = m[1].match(/<option[^>]*>/);
+  return first ? (attrs(first[0]).value || "") : "";
+}
+const mkClassList = () => {
+  const s = new Set();
+  return { add: c => s.add(c), remove: c => s.delete(c), contains: c => s.has(c), _s: s };
+};
 const elems = {};
 const doc = {
-  getElementById: id => (elems[id] = elems[id] || {
-    innerHTML: "", value: "Scots pine (Pinus sylvestris)", textContent: "",
-    addEventListener() {}, appendChild() {}
-  }),
+  getElementById(id) {
+    if (elems[id]) return elems[id];
+    const n = {
+      id, innerHTML: "", textContent: "", style: {}, classList: mkClassList(),
+      value: inputDefaults.has(id) ? inputDefaults.get(id) : selectDefault(id),
+      addEventListener() {}, setAttribute() {}, getAttribute() { return null; },
+      // <select> behaviour: the first appended <option> becomes the value
+      appendChild(c) { if (this.id === "species" && c && !this.value) this.value = String(c.value); },
+      querySelector() { return null; }, querySelectorAll() { return []; }
+    };
+    elems[id] = n;
+    return n;
+  },
   createElement: () => ({
-    value: "", textContent: "", appendChild() {}
-  })
+    value: "", textContent: "", style: {}, classList: mkClassList(),
+    addEventListener() {}, appendChild() {}, setAttribute() {}
+  }),
+  addEventListener() {}, querySelector() { return null; }, querySelectorAll() { return []; }
 };
-const ctx = { document: doc, window: {} };
+const ctx = { document: doc, window: { print() {}, addEventListener() {} }, console };
 vm.createContext(ctx);
 const E = vm.runInContext(engineSrc + ";ENGINE;", ctx);
-vm.runInContext(uiSrc, ctx); // runs init(): needs #species etc -> stubs fine
+vm.runInContext(uiSrc, ctx); // init(): species options + applySpecies + run() on load
+
+// ---------- 1. load-time simulation: the page must self-calculate ----------
+let fails = 0;
+const chk = (name, ok) => { console.log((ok ? "PASS" : "FAIL") + " - " + name); if (!ok) fails++; };
+const tbl = () => elems["boardTable"].innerHTML;
+
+chk("load: default log/board inputs exactly as specified",
+  elems["dSmall"].value === "220" && elems["dLarge"].value === "250" &&
+  elems["length"].value === "4.2" && elems["pattern"].value === "cant" &&
+  elems["thickness"].value === "50" && elems["kerf"].value === "2.5" &&
+  elems["edgeTrim"].value === "0" && elems["cantWidth"].value === "155");
+chk("load: species select defaulted to a library entry", !!E.SPECIES[elems["species"].value]);
+chk("load: results table rendered automatically", /<table/.test(tbl()) && !/Enter inputs/.test(tbl()));
+chk("load: no validation warning", !/check the highlighted/.test(tbl()));
+chk("load: no NaN in table", !/NaN/.test(tbl()));
+chk("load: total volume line present", /Total lumber volume/.test(tbl()));
+chk("load: cross-section rendered (3 circles)", (elems["cross"].innerHTML.match(/<circle/g) || []).length === 3);
+chk("load: MC histogram rendered", /Moisture content distribution/.test(elems["chart"].innerHTML));
+chk("load: density histogram rendered", /Oven-dry density distribution/.test(elems["chartRho"].innerHTML));
+chk("load: board-selection checkboxes rendered", /type="checkbox"/.test(elems["boardSelect"].innerHTML));
+chk("load: calculation used 1000 logs", /from 1000 runs/.test(elems["chart"].innerHTML));
+const loadBoards = vm.runInContext("LAST.base.boards.length", ctx);
+console.log("  (defaults 220/250 mm · 4.2 m · 50 mm boards · kerf 2.5 · cant 155 -> " +
+  loadBoards + " items, " + (tbl().match(/<tr>/g) || []).length + " table rows)");
 
 const p = { species: "Scots pine", dSmall: 400, dLarge: 460, length: 4.8,
   thickness: 50, kerf: 3.4, edgeTrim: 10, pattern: "cant", cantWidth: 240,
@@ -94,3 +154,7 @@ const cant = r.boards.find(b => b.isCant);
 const cantIn = Math.hypot(cant.x2, cant.y2) <= Rsmall + 0.01;
 console.log("cant fully inside log circle:", cantIn);
 console.log("cant present:", !!cant, "| warnings:", r.warnings.length);
+
+// ---------- summary ----------
+console.log(fails === 0 ? "\nALL UI CHECKS PASSED" : "\n" + fails + " UI CHECK(S) FAILED");
+process.exitCode = fails ? 1 : 0;
