@@ -30,7 +30,7 @@ const eq = (name, got, want, tol) => {
 };
 
 // rectInside sanity: full circle area of r=100 -> pi*100^2 = 31415.9
-const p1 = { dSmall: 200, dLarge: 200, length: 3, thickness: 25, kerf: 3,
+const p1 = { dSmall: 200, dLarge: 200, length: 3, thickCore: 25, thickSide: 25, kerf: 3,
   edgeTrim: 0, pattern: "tnt", cantWidth: 0,
   mcSap: 100, mcHeart: 50, rhoCore: 400, rhoPerimeter: 400, shrinkVol: 0, heartFrac: 0.5 };
 
@@ -98,10 +98,12 @@ if (!r.boards.some(b => b.isCant)) { console.log("FAIL  oversized cant was dropp
 else console.log("PASS  oversized cant clamped, not dropped");
 if (!r.warnings.length) { console.log("FAIL  expected clamp warning"); fails++; }
 else console.log("PASS  clamp warning raised:", r.warnings[0]);
-// cant area must not exceed inscribed-square area (141.4^2 = 20000)
-const cant = r.boards.find(b => b.isCant);
-if (cant.volume / (p1.length) > 0.020001) { console.log("FAIL  cant volume exceeds inscribed square"); fails++; }
-else console.log("PASS  cant area within inscribed square");
+// cant rows together must not exceed the inscribed-square area
+const cantRows8 = r.boards.filter(b => b.isCant);
+const cantArea = cantRows8.reduce((s, b) => s + b.volume / p1.length, 0);
+if (cantArea > 0.020001) { console.log("FAIL  cant volume exceeds inscribed square"); fails++; }
+else console.log("PASS  cant rows within inscribed square (area", (cantArea * 1e6).toFixed(0), "mm²,",
+  cantRows8.length, "rows)");
 
 // 9. cant layout: cant resawn into rows + vertical side boards left/right
 const pc = { ...p1, pattern: "cant", cantWidth: 120 };
@@ -115,7 +117,7 @@ if (!sides.some(b => /Side L/.test(b.label)) || !sides.some(b => /Side R/.test(b
 } else console.log("PASS  side boards present both sides:", sides.map(b => b.label).join(", "));
 // vertical side boards: sawn thickness = horizontal extent
 const sR = sides.find(b => /Side R/.test(b.label));
-if (Math.abs(sR.thickness - pc.thickness) > 0.01) { console.log("FAIL  side board thickness wrong:", sR.thickness); fails++; }
+if (Math.abs(sR.thickness - pc.thickSide) > 0.01) { console.log("FAIL  side board thickness wrong:", sR.thickness); fails++; }
 else console.log("PASS  side board thickness =", sR.thickness, "mm");
 // no overlapping rectangles in the layout (kerf-separated, disjoint)
 let overlap = false;
@@ -134,6 +136,51 @@ if (rowThick > Math.min(pc.cantWidth, Math.SQRT2 * pc.dSmall / 2) + 0.01) {
   console.log("FAIL  cant rows exceed cant width:", rowThick); fails++;
 } else console.log("PASS  cant rows span", rowThick, "mm <= cant width");
 
+// 9b. core/side board thicknesses and wane side boards.
+//     Defaults: Ø220 + cant 155 = inscribed square -> previously no side
+//     boards at all; with wane allowed we must get side boards on both
+//     flanks and above/below the cant, sawn to the side thickness.
+const pDef = { dSmall: 220, dLarge: 250, length: 4.2, thickCore: 50, thickSide: 25,
+  kerf: 2.5, edgeTrim: 0, pattern: "cant", cantWidth: 155,
+  mcSap: 120, mcHeart: 40, rhoCore: 455, rhoPerimeter: 568, shrinkVol: 12, heartFrac: 0.45 };
+const dDef = E.compute(pDef).boards;
+const dCore = dDef.filter(b => b.isCant), dSide = dDef.filter(b => !b.isCant);
+const cwDef = Math.min(pDef.cantWidth, Math.SQRT2 * pDef.dSmall / 2);
+if (!(dCore.length >= 2 && dSide.length >= 4)) {
+  console.log("FAIL  expected core rows + wane side boards, got", dCore.length, "core,", dSide.length, "side"); fails++;
+} else console.log("PASS  Ø220/cant 155 yields", dCore.length, "core +", dSide.length, "side boards (wane)");
+if (dCore.some(b => Math.abs(b.thickness - pDef.thickCore) > 0.01)) {
+  console.log("FAIL  core board thickness != thickCore"); fails++;
+} else console.log("PASS  core boards sawn to core thickness", pDef.thickCore, "mm");
+if (dSide.some(b => Math.abs(b.thickness - pDef.thickSide) > 0.01)) {
+  console.log("FAIL  side board thickness != thickSide"); fails++;
+} else console.log("PASS  side boards sawn to side thickness", pDef.thickSide, "mm");
+// edging rule: nothing sawn wider than the cant
+const overW = [...dCore, ...dSide].filter(b => b.width > cwDef + 0.01);
+if (overW.length) { console.log("FAIL  board wider than cant:", overW.map(b => b.label + " " + b.width)); fails++; }
+else console.log("PASS  no board wider than the cant (max width",
+  Math.max(...[...dCore, ...dSide].map(b => b.width)), "<= " + cwDef.toFixed(0) + " mm)");
+// side boards must exist above AND below the cant, and on both flanks
+if (!(dSide.some(b => b.y1 >= cwDef / 2 - 1) && dSide.some(b => b.y2 <= -cwDef / 2 + 1))) {
+  console.log("FAIL  missing side boards above/below the cant"); fails++;
+} else console.log("PASS  side boards above and below the cant");
+// flank boards are the vertical ones (Side R…/Side L…) beside the cant
+const flank = dSide.filter(b => /Side [LR]/.test(b.label));
+if (!(flank.some(b => /Side R/.test(b.label)) && flank.some(b => /Side L/.test(b.label)))) {
+  console.log("FAIL  missing flank side boards L/R"); fails++;
+} else console.log("PASS  flank side boards present:", flank.map(b => b.label).join(", "));
+// wane must be real: a side board corner outside the log circle but volume > 0
+const waneOk = dSide.some(b => b.volume > 0 &&
+  (Math.hypot(b.x1, b.y1) > pDef.dSmall / 2 + 0.5 || Math.hypot(b.x2, b.y2) > pDef.dSmall / 2 + 0.5));
+if (!waneOk) { console.log("FAIL  no wane detected in side boards"); fails++; }
+else console.log("PASS  wane allowed: side board volume clipped to the log (area still counted)");
+
+// 9c. through-and-through uses the core thickness for every board
+const tntC = E.compute({ ...pDef, pattern: "tnt", cantWidth: 0 }).boards;
+if (tntC.some(b => Math.abs(b.thickness - pDef.thickCore) > 0.01)) {
+  console.log("FAIL  live-sawn board thickness != thickCore"); fails++;
+} else console.log("PASS  live sawing uses core thickness for all boards");
+
 // 10. heartwood fraction sampling: deterministic, in range, correct moments
 const s1 = E.sampleHeartFrac(0.3, 0.7, 1000, 42);
 const s2 = E.sampleHeartFrac(0.3, 0.7, 1000, 42);
@@ -151,7 +198,7 @@ eq("sample sd ~ (max-min)/4", mSd, 0.1, 0.02);
 // 11. distribution build sanity: MC of a pure-heartwood board independent of frac?
 // cant rows near pith keep heart% ~ constant; bark-side boards lose sapwood as
 // frac grows -> their MC must DECREASE with increasing heartFrac.
-const pd = { dSmall: 400, dLarge: 400, length: 4, thickness: 50, kerf: 3, edgeTrim: 10,
+const pd = { dSmall: 400, dLarge: 400, length: 4, thickCore: 50, thickSide: 50, kerf: 3, edgeTrim: 10,
   pattern: "tnt", cantWidth: 0, mcSap: 120, mcHeart: 55, rhoCore: 400, rhoPerimeter: 400, shrinkVol: 0,
   heartFracMin: 0.4, heartFracMax: 0.9 };
 // top board spans y=[134,184] mm; rh=0.4*200=80 -> pure sapwood (MC 120),
@@ -187,7 +234,7 @@ eq("full-disc mean density of linear gradient", 300 + (500 - 300) * (g.rs / g.a)
 // compute() wiring: independent numeric integration over the top band
 // [-100,100] of a 400 mm log, rho(r)=300+200r/200
 const band = E.compute({ ...pGrad, heartFrac: 0.0, dSmall: 400, dLarge: 400,
-  thickness: 200, kerf: 0, edgeTrim: 0, length: 1 });
+  thickCore: 200, thickSide: 200, kerf: 0, edgeTrim: 0, length: 1 });
 let iArea = 0, iRho = 0;
 const NQ = 400;
 for (let iy = 0; iy < NQ; iy++) {

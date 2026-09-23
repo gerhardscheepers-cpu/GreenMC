@@ -64,7 +64,7 @@ const tbl = () => elems["boardTable"].innerHTML;
 chk("load: default log/board inputs exactly as specified",
   elems["dSmall"].value === "220" && elems["dLarge"].value === "250" &&
   elems["length"].value === "4.2" && elems["pattern"].value === "cant" &&
-  elems["thickness"].value === "50" && elems["kerf"].value === "2.5" &&
+  elems["thickCore"].value === "50" && elems["thickSide"].value === "25" && elems["kerf"].value === "2.5" &&
   elems["edgeTrim"].value === "0" && elems["cantWidth"].value === "155");
 chk("load: species select defaulted to a library entry", !!E.SPECIES[elems["species"].value]);
 chk("load: results table rendered automatically", /<table/.test(tbl()) && !/Enter inputs/.test(tbl()));
@@ -77,11 +77,11 @@ chk("load: density histogram rendered", /Oven-dry density distribution/.test(ele
 chk("load: board-selection checkboxes rendered", /type="checkbox"/.test(elems["boardSelect"].innerHTML));
 chk("load: calculation used 1000 logs", /from 1000 runs/.test(elems["chart"].innerHTML));
 const loadBoards = vm.runInContext("LAST.base.boards.length", ctx);
-console.log("  (defaults 220/250 mm · 4.2 m · 50 mm boards · kerf 2.5 · cant 155 -> " +
+console.log("  (defaults 220/250 mm · 4.2 m · 50 mm core / 25 mm side · kerf 2.5 · cant 155 -> " +
   loadBoards + " items, " + (tbl().match(/<tr>/g) || []).length + " table rows)");
 
 const p = { species: "Scots pine", dSmall: 400, dLarge: 460, length: 4.8,
-  thickness: 50, kerf: 3.4, edgeTrim: 10, pattern: "cant", cantWidth: 240,
+  thickCore: 50, thickSide: 25, kerf: 3.4, edgeTrim: 10, pattern: "cant", cantWidth: 240,
   mcSap: 120, mcHeart: 55, rhoMin: 380, rhoMax: 440, shrinkVol: 12,
   heartFracMin: 0.35, heartFracMax: 0.55 };
 // run the Monte-Carlo + full render via the UI layer (20 runs for speed)
@@ -115,7 +115,8 @@ console.log("rho histogram parts:", ["Oven-dry density distribution", "Avg.", "S
   .every(k => chartRho.includes(k)) ? "present" : "MISSING");
 console.log("rho histogram bins:", (chartRho.match(/<rect/g) || []).length);
 const pooledRhoVals = (chartRho.match(/· (\d+) values from/) || [])[1];
-console.log("rho histogram pools values from runs:", pooledRhoVals === "160", "(" + pooledRhoVals + ")");
+console.log("rho histogram pools values from runs:", pooledRhoVals === String(r.boards.length * 20),
+  "(" + pooledRhoVals + ", expect " + r.boards.length * 20 + ")");
 
 // densities must stay within the species range across all runs/boards
 const allRho = vm.runInContext("LAST.perBoard.flatMap(pb => pb.rhos)", ctx);
@@ -124,9 +125,8 @@ console.log("all densities within species range:", inBounds,
   "(" + Math.min(...allRho).toFixed(0) + "-" + Math.max(...allRho).toFixed(0) + " vs " + p.rhoMin + "-" + p.rhoMax + ")");
 
 function shortTagOf(b) {
-  return b.isCant ? b.label.replace("Cant row ", "C")
-    : b.label.startsWith("Side") ? b.label.replace("Side ", "")
-    : b.label.replace("Board ", "B");
+  return b.label.replace("Core ", "C").replace("Side R", "R")
+    .replace("Side L", "L").replace("Side ", "S");
 }
 
 // selection interplay: deselect all but one board -> fewer pooled values
@@ -154,6 +154,21 @@ const cant = r.boards.find(b => b.isCant);
 const cantIn = Math.hypot(cant.x2, cant.y2) <= Rsmall + 0.01;
 console.log("cant fully inside log circle:", cantIn);
 console.log("cant present:", !!cant, "| warnings:", r.warnings.length);
+
+// edging rule: no side board may be wider than the cant width
+const cwUsed = Math.min(p.cantWidth, Math.SQRT2 * Rsmall);
+const tooWide = r.boards.filter(b => b.orient === "h" && !b.isCant && (b.x2 - b.x1) > cwUsed + 1e-9);
+chk("no side board wider than the cant (" + cwUsed.toFixed(0) + " mm)",
+  tooWide.length === 0);
+// side boards must be sawn to the side-board thickness
+const sideH = r.boards.filter(b => b.orient === "h" && !b.isCant);
+chk("side boards sawn to side-board thickness", sideH.every(b => Math.abs(b.thickness - p.thickSide) < 0.01));
+// wane is expected in live sawing: bark-side boards reach past the circle
+const tnt = vm.runInContext("JSON.stringify(ENGINE.compute(" +
+  JSON.stringify({ ...p, pattern: "tnt", cantWidth: 0 }) + ").boards)", ctx);
+const tntBoards = JSON.parse(tnt);
+const wane = tntBoards.some(b => Math.hypot(b.x2, b.y1) > Rsmall + 0.5);
+chk("wane allowed (bark-side corners outside log circle, live sawing)", wane);
 
 // ---------- summary ----------
 console.log(fails === 0 ? "\nALL UI CHECKS PASSED" : "\n" + fails + " UI CHECK(S) FAILED");

@@ -5,8 +5,8 @@ sawmill staff a rough estimate of the **green moisture content (MC)** and **oven
 density** of lumber before or after sawing, from:
 
 - log dimensions (small-end / large-end diameter, length),
-- the sawing pattern (through-and-through, or cant + side boards) with board
-  thickness, kerf, edge trim and cant width,
+- the sawing pattern (through-and-through, or cant + side boards) with **core board
+  thickness**, **side board thickness**, kerf, edge trim and cant width,
 - species properties: sapwood/heartwood green MC, species minimum/maximum
   oven-dry density, heartwood diameter range, volumetric shrinkage.
 
@@ -24,11 +24,20 @@ For online use, the app is served by GitHub Pages at:
 ## Model
 
 1. **Layout** — a symmetric board layout is generated on the log cross-section
-   (small end). Through-and-through centres a board on the pith; the cant
-   pattern resaws the cant into rows of the chosen thickness and adds vertical
-   side boards on both flanks. Board widths are limited by the small-end chord,
-   and a cant wider than the inscribed square (√2 × radius) is clamped with a
-   warning.
+   (small end). Through-and-through centres boards of the core thickness on the
+   pith. The cant pattern resaws the cant into **core boards** (core thickness,
+   labelled `Core 1…n`) and adds **side boards**:
+   - the boards above and below the cant (`Side 1…n`), and
+   - the boards on both flanks (`Side R1`, `Side L1`).
+
+   Side boards are sawn to the **side board thickness**, and all non-cant boards
+   are **edged to the cant width** (they cannot end up wider than the cant) and
+   trimmed by the edge trim. Board widths are otherwise limited by the small-end
+   chord, and a cant wider than the inscribed square (√2 × radius) is clamped
+   with a warning. Where the log boundary cuts a board corner the board keeps its
+   sawn dimensions but only the wood inside the log counts (wane): the table
+   shows both **width sawn** and **width solid** (wane-free width = wood area ÷
+   thickness), and lumber volume counts solid wood only.
 2. **Between-log variation (Monte Carlo, 1000 logs)** — for every simulated log:
    - heartwood fraction ~ Normal((min + max)/2, (max − min)/4), kept within
      [min, max],
@@ -70,9 +79,9 @@ With Node.js installed:
 
 ```
 node test.mjs     # engine math: limiting cases, analytic integrals,
-                  # conservation, samplers (48 checks)
+                  # conservation, layout geometry, samplers (57 checks)
 node uitest.mjs   # full UI render against a DOM stub: table, cross-section,
-                  # both histograms, board selection
+                  # both histograms, board selection (14 checks)
 ```
 
 Both extract the engine/UI scripts straight out of `index.html`, so the shipped
