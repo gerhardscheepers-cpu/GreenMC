@@ -192,8 +192,10 @@
       </div>
       <h2 style="margin-top:14px">Log</h2>
       <div class="row">
-        <div><label>Small-end diameter (mm)</label><input type="text" inputmode="decimal" id="dSmall" step="5" value="220"></div>
-        <div><label>Large-end diameter (mm)</label><input type="text" inputmode="decimal" id="dLarge" step="5" value="250"></div>
+        <div><label>Small-end diameter (mm)</label><input type="text" inputmode="decimal" id="dSmall" step="5"
+            value="220"></div>
+        <div><label>Large-end diameter (mm)</label><input type="text" inputmode="decimal" id="dLarge" step="5"
+            value="250"></div>
       </div>
       <label>Log length (m)</label><input type="text" inputmode="decimal" id="length" step="0.1" value="4.2">
       <h2 style="margin-top:14px">Sawing pattern</h2>
@@ -203,25 +205,46 @@
         <option value="cant" selected>Cant + side boards</option>
       </select>
       <div class="row">
-        <div><label>Core board thickness (mm)</label><input type="text" inputmode="decimal" id="thickCore" step="1" value="50"></div>
-        <div><label>Side board thickness (mm)</label><input type="text" inputmode="decimal" id="thickSide" step="1" value="25"></div>
+        <div><label>Core board thickness (mm)</label><input type="text" inputmode="decimal" id="thickCore" step="1"
+            value="50"></div>
+        <div><label>Side board thickness (mm)</label><input type="text" inputmode="decimal" id="thickSide" step="1"
+            value="25"></div>
       </div>
-      <div class="row">
-        <div><label>Kerf (mm)</label><input type="text" inputmode="decimal" id="kerf" step="0.1" value="2.5"></div>
-        <div><label>Edge trim each side (mm)</label><input type="text" inputmode="decimal" id="edgeTrim" step="5" value="0"></div>
-      </div>
+      <label>Kerf (mm)</label><input type="text" inputmode="decimal" id="kerf" step="0.1" value="2.5">
       <label>Cant width (mm, 0 = none)</label>
       <input type="text" inputmode="decimal" id="cantWidth" step="5" value="155">
+      <h2 style="margin-top:14px">Side board</h2>
+      <div class="row">
+        <div><label>Board width (mm)</label><input type="text" inputmode="decimal" id="sideWidth" step="5" value="125">
+        </div>
+        <div><label>Shortest board length (mm)</label><input type="text" inputmode="decimal" id="minBoardLen" step="50"
+            value="2500"></div>
+      </div>
+      <div class="row">
+        <div><label>Max wane in width (fraction of width)</label><input type="text" inputmode="decimal"
+            id="waneWidthFrac" step="0.05" value="0.33"></div>
+        <div><label>Max wane in thickness (fraction of thickness)</label><input type="text" inputmode="decimal"
+            id="waneThickFrac" step="0.05" value="0.5"></div>
+      </div>
       <button id="calc">Calculate</button>
       <button id="csv" class="secondary">Export CSV</button>
       <button id="print" class="secondary">Print / PDF</button>
-      <p class="note">Sawing model: the cant is resawn into core boards of the core board thickness (any remainder above/below
-        the cant is taken as side boards); side boards (above/below the cant and on both flanks) are sawn to the side board
-        thickness and edged to the cant width, so no side board is wider than the cant. Boards with wane (corners outside
-        the log) are allowed and their volume is clipped to the log. Through-and-through sawing uses the core board
-        thickness for all boards.
-        Assumptions: circular cross-section; taper handled by using the mean-section radius for board
-        areas and the small end for layout; no within-zone MC gradient; boards run full length. The density inputs give
+      <p class="note">Sawing model: the cant is resawn into core boards of the core board thickness; the boards above
+        and
+        below the cant and the boards on both flanks are side boards, sawn to the side board thickness and edged to the
+        side
+        board width (never wider than the cant). Wane — wood missing at a board corner because the board reaches past
+        the log —
+        is trimmed: each side board is cut back from the small end towards the large end until both wane limits are met.
+        A side
+        board is produced only if what is left is at least the shortest allowed board length; otherwise it is dropped
+        (side
+        boards are never edged down to a narrower width). Wane inside the limits is
+        not counted as wood: volumes, masses, moisture content and density all refer to solid (wane-free) wood.
+        Through-and-through sawing treats every board as a side board and uses the core board thickness.
+        Assumptions: circular cross-section; linear taper, board widths limited by the small end; no within-zone MC
+        gradient.
+        The density inputs give
         the SPECIES minimum and maximum oven-dry density (oven-dry mass / oven-dry volume); within each log the radial
         density range is 0.7 × the species range, placed randomly inside the species range for every log, so all
         densities stay within the species bounds. Heartwood and sapwood MC vary between logs with SD = 5 % of the given
@@ -358,15 +381,82 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
         return { a: a * dA, rs: rs * dA, ah: ah * dA, rsh: rsh * dA };
       }
 
+      // ---- small-end layout ----------------------------------------------
       // Symmetric layout on the small-end section; y = height above pith.
-      // Returns [{y1,y2,x1,x2,orient:"h"|"v",isCant,label,warnings}] ordered
-      // top bark-side -> pith -> bottom bark-side, then left/right side boards.
+      // Boards are returned ordered top bark-side -> pith -> bottom
+      // bark-side, then left/right flank boards. Every board carries its sawn
+      // rectangle {x1,x2,y1,y2}, the part of the log it occupies
+      // (zStart..zEnd in m from the small end) and, for side boards, how wane
+      // was handled (trim = "full" | "cut" | "edged").
+
+      // Smallest local radius (mm) at which a board keeps both wane fractions
+      // within the limits. dIn/dOut = pith distance of the inner/outer face,
+      // hw = half the sawn width, t = sawn thickness, fWm/fTm = maximum wane
+      // fraction in width / in thickness (>= 1 = no limit).
+      //   wane in width at the outer face : (w - 2C)/w with C = sqrt(R^2-dOut^2)
+      //   wane in depth at the width edge : (dOut - E)/t with E = sqrt(R^2-hw^2)
+      // (E is bounded below by the inner face, so wane can never count as more
+      // than the board's own thickness.)
+      function waneReqRadius(dIn, dOut, hw, t, fWm, fTm) {
+        let Rreq = 0;
+        if (fWm < 1) {                        // need C >= (1 - fWm)*hw
+          const need = hw * (1 - fWm);
+          Rreq = Math.sqrt(dOut * dOut + need * need);
+        }
+        const dLim = dOut - fTm * t;          // need E >= dLim
+        if (dLim > dIn + 1e-9) Rreq = Math.max(Rreq, Math.sqrt(hw * hw + dLim * dLim));
+        return Rreq;
+      }
+
+      // Widest board at this position that is wane-compliant at radius R.
+      function fullLengthWidth(dIn, dOut, t, fWm, fTm, R) {
+        let hw = Infinity;
+        if (fWm < 1) {
+          const C2 = R * R - dOut * dOut;     // chord half at the outer face
+          if (C2 <= 0) return 0;              // outer face outside the log
+          hw = Math.sqrt(C2) / (1 - fWm);
+        }
+        const dLim = Math.max(dIn, dOut - fTm * t);
+        hw = Math.min(hw, Math.sqrt(Math.max(0, R * R - dLim * dLim)));
+        return 2 * hw;
+      }
+
+      // Sawn width + used length of one side board: the board keeps its sawn
+      // (product) width and is cut back from the small end towards the large
+      // end until both wane limits are met. It is produced only if what is
+      // left is at least the shortest allowed board length — a side board is
+      // never edged down to a narrower board. Returns {w, zStart, zEnd, trim}
+      // when it can be produced, otherwise {trim:"drop", w, len} where len is
+      // the length the wane limits would allow (0 when they never do).
+      function planSideBoard(Rs, Rl, L, wTarget, dIn, dOut, t, fWm, fTm, minLen) {
+        const hw = wTarget / 2;
+        const Rreq = waneReqRadius(dIn, dOut, hw, t, fWm, fTm);
+        const Rlo = Math.min(Rs, Rl), Rhi = Math.max(Rs, Rl);
+        if (Rreq <= Rlo + 1e-9) return { w: wTarget, zStart: 0, zEnd: L, trim: "full" };
+        if (Rreq > Rhi + 1e-9) return { trim: "drop", w: wTarget, len: 0 };
+        const zCut = (Rl >= Rs) ? L * (Rreq - Rs) / (Rl - Rs)
+          : L * (Rs - Rreq) / (Rs - Rl);
+        const z = Math.min(Math.max(zCut, 0), L);
+        const zStart = (Rl >= Rs) ? z : 0, zEnd = (Rl >= Rs) ? L : z;
+        if (zEnd - zStart < minLen - 1e-9) {
+          return { trim: "drop", w: wTarget, len: zEnd - zStart };
+        }
+        return { w: wTarget, zStart: zStart, zEnd: zEnd, trim: "cut" };
+      }
+
       function buildLayout(p) {
-        const R = p.dSmall / 2, k = p.kerf, e = p.edgeTrim || 0;
+        const R = p.dSmall / 2, k = p.kerf;               // R = small-end radius
+        const Rl = ((typeof p.dLarge === "number") && isFinite(p.dLarge) && p.dLarge > 0
+          ? p.dLarge : p.dSmall) / 2;                     // large-end radius
+        const L = p.length;
         const tC = p.thickCore, tS = p.thickSide;    // core (cant) and side board thickness
+        const sw = (p.sideWidth > 0) ? p.sideWidth : Infinity;        // target side board width
+        const fWm = isFinite(p.waneWidthFrac) ? p.waneWidthFrac : 1;   // wane limits
+        const fTm = isFinite(p.waneThickFrac) ? p.waneThickFrac : 1;
+        const minLen = Math.min(p.minBoardLen > 0 ? p.minBoardLen / 1000 : 0, L);
         const chordHalf = y => Math.sqrt(Math.max(0, R * R - y * y));
         const raw = [];
-        const warnings = [];
+        const warnings = [], dropped = [];
         let cw = 0;                                        // actual cant width used
         if (p.pattern === "cant" && p.cantWidth > 0) {
           // largest cant that fits a circle of radius R is the inscribed
@@ -395,21 +485,18 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
           while (yl - tS >= -R) { raw.push({ y1: yl - tS, y2: yl, orient: "h", wCap: cw }); yl -= (tS + k); }
           // 3) vertical side boards flanking the cant, of side-board thickness.
           //    They are x-disjoint from the cant and flitch boards
-          //    (|x| >= cw/2 + kerf), so their height is limited only by the
-          //    log chord at their inner face and by the cant width (edging
-          //    rule). Wane outside the log is allowed; volume is clipped.
+          //    (|x| >= cw/2 + kerf); their sawn width (the y span) is decided
+          //    in the sizing pass below. Wane beyond the log is trimmed.
           let x = cw / 2 + k;
           while (x + tS <= R) {
-            const h = Math.min(2 * chordHalf(x), cw) - 2 * e;
-            if (h <= 0) break;
-            raw.push({ x1: x, x2: x + tS, y1: -h / 2, y2: h / 2, orient: "v" });
+            if (Math.min(2 * chordHalf(x), cw, sw) < tS) break;   // no room for a board
+            raw.push({ x1: x, x2: x + tS, y1: -tS / 2, y2: tS / 2, orient: "v" });
             x += tS + k;
           }
           x = -cw / 2 - k;
           while (x - tS >= -R) {
-            const h = Math.min(2 * chordHalf(Math.abs(x)), cw) - 2 * e;
-            if (h <= 0) break;
-            raw.push({ x1: x - tS, x2: x, y1: -h / 2, y2: h / 2, orient: "v" });
+            if (Math.min(2 * chordHalf(Math.abs(x)), cw, sw) < tS) break;
+            raw.push({ x1: x - tS, x2: x, y1: -tS / 2, y2: tS / 2, orient: "v" });
             x -= (tS + k);
           }
         } else {
@@ -421,124 +508,210 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
           let yl = -tC / 2 - k;
           while (yl - tC >= -R) { raw.push({ y1: yl - tC, y2: yl, orient: "h" }); yl -= (tC + k); }
         }
-        // size horizontal boards by the chord at their inner face, capped by
-        // the cant width where a cap applies (edging rule); vertical boards are
-        // already sized. Label everything in a stable, readable order.
+        // Size every board. Cant rows sit inside the inscribed square, so they
+        // are wane-free and use the full log length. Side boards are planned
+        // against the wane limits (width cap: chord at the inner face, cant
+        // width and the target side board width). Labels are handed out in a
+        // stable, readable order (top -> pith -> bottom, then flanks).
         const horiz = raw.filter(b => b.orient === "h").sort((a, b) => b.y1 - a.y1);
         const vert = raw.filter(b => b.orient === "v").sort((a, b) => b.x1 - a.x1);
         const out = [];
         let nb = 0, nc = 0, nl = 0, nr = 0;
-        for (const b of horiz) {
-          const yOut = Math.min(Math.abs(b.y1), Math.abs(b.y2));
-          // cant rows are trimmed to the cant width; flitch boards take the
-          // full chord at their inner face
-          const w = Math.min(2 * chordHalf(yOut), b.wCap || Infinity) - 2 * e;
-          if (w <= 0) continue;
-          b.x1 = -w / 2; b.x2 = w / 2;
-          b.label = b.isCant ? ("Core " + (++nc)) : ("Side " + (++nb));
+        const take = (b, plan) => {
+          b.zStart = plan.zStart; b.zEnd = plan.zEnd; b.length = plan.zEnd - plan.zStart;
+          b.trim = plan.trim;
           out.push(b);
+        };
+        for (const b of horiz) {
+          const yIn = Math.min(Math.abs(b.y1), Math.abs(b.y2));
+          const yOut = Math.max(Math.abs(b.y1), Math.abs(b.y2));
+          const t = b.y2 - b.y1;
+          if (b.isCant) {
+            const w = Math.min(2 * chordHalf(yIn), b.wCap || Infinity);
+            if (w <= 0) continue;
+            b.x1 = -w / 2; b.x2 = w / 2;
+            b.label = "Core " + (++nc);
+            take(b, { zStart: 0, zEnd: L, trim: "full" });
+            continue;
+          }
+          b.label = "Side " + (++nb);
+          const wTarget = Math.min(2 * chordHalf(yIn), b.wCap || Infinity, sw);
+          if (!(wTarget >= Math.max(tS, 1))) continue;      // no usable width
+          const plan = planSideBoard(R, Rl, L, wTarget, yIn, yOut, t, fWm, fTm, minLen);
+          if (plan.trim === "drop") { dropped.push({ label: b.label, w: plan.w, len: plan.len }); continue; }
+          b.x1 = -plan.w / 2; b.x2 = plan.w / 2;
+          take(b, plan);
         }
         for (const b of vert) {
+          const xIn = Math.min(Math.abs(b.x1), Math.abs(b.x2));
+          const xOut = Math.max(Math.abs(b.x1), Math.abs(b.x2));
+          const t = b.x2 - b.x1;
           b.label = (b.x1 >= 0 ? "Side R" + (++nr) : "Side L" + (++nl));
-          out.push(b);
+          const wTarget = Math.min(2 * chordHalf(xIn), b.wCap || Infinity, sw);
+          if (!(wTarget >= Math.max(tS, 1))) continue;      // no usable width
+          const plan = planSideBoard(R, Rl, L, wTarget, xIn, xOut, t, fWm, fTm, minLen);
+          if (plan.trim === "drop") { dropped.push({ label: b.label, w: plan.w, len: plan.len }); continue; }
+          b.y1 = -plan.w / 2; b.y2 = plan.w / 2;
+          take(b, plan);
         }
         out.warnings = warnings;
+        if (dropped.length) {
+          const list = dropped.map(d => d.len > 0
+            ? d.label + " (" + d.w.toFixed(0) + " mm wide gives " + d.len.toFixed(2) + " m)"
+            : d.label + " (" + d.w.toFixed(0) + " mm wide never meets the wane limits)");
+          warnings.push("Dropped " + dropped.length + " side board(s): " + list.join("; ") +
+            ". A side board is only produced if the part of the log that meets the wane limits is at least " +
+            (1000 * minLen).toFixed(0) + " mm long — side boards are not edged down to a narrower width. " +
+            "Use a narrower side board width, allow more wane, or a longer / more tapered log.");
+        }
         return out;
       }
 
-      // Prepared-board cache: for a given sawing layout the board geometry
-      // is fixed, so the grid-cell radii inside the log circle are computed
-      // once and reused across Monte-Carlo runs (only the heartwood radius
-      // changes between runs). Addition order matches rectRadial, so the
-      // results are bitwise identical but ~20x faster per run.
-      let PREP = { key: null, boards: null, warnings: [], Rmean: 0 };
+      // Prepared-board cache: for a given sawing layout the geometry is fixed,
+      // so the grid-cell radii inside the log are computed once and reused
+      // across Monte-Carlo runs (only the heartwood radius changes between
+      // runs). Each board is sampled at NZ stations along the log because a
+      // tapered log widens towards the large end: the solid (wane-free) area
+      // grows with the local radius. Radii are sorted with a prefix sum, so
+      // the heartwood split is a binary search per station and run.
+      const NZ = 24;
+      let PREP = { key: null, boards: null, warnings: [] };
 
       function prepKey(p) {
-        return [p.dSmall, p.dLarge, p.thickCore, p.thickSide, p.kerf, p.edgeTrim, p.pattern, p.cantWidth].join("|");
+        return [p.dSmall, p.dLarge, p.length, p.thickCore, p.thickSide, p.kerf, p.pattern,
+        p.cantWidth, p.sideWidth, p.waneWidthFrac, p.waneThickFrac, p.minBoardLen].join("|");
+      }
+
+      // sort the cell radii and build the prefix sums used for the heartwood
+      // sub-integrals (count and radial moment of all cells with r <= rh)
+      function packRadii(rr, dA) {
+        rr.sort((a, c) => a - c);
+        const cum = new Float64Array(rr.length + 1);
+        for (let i = 0; i < rr.length; i++) cum[i + 1] = cum[i] + rr[i];
+        return { radii: rr, cum: cum };
+      }
+
+      // number of sorted values <= v
+      function upperBound(a, v) {
+        let lo = 0, hi = a.length;
+        while (lo < hi) {
+          const m = (lo + hi) >> 1;
+          if (a[m] <= v) lo = m + 1; else hi = m;
+        }
+        return lo;
       }
 
       function prepareBoards(p) {
-        const Rmean = (p.dSmall / 2 + p.dLarge / 2) / 2;
+        const Rs = p.dSmall / 2;
+        const Rl = ((typeof p.dLarge === "number") && isFinite(p.dLarge) && p.dLarge > 0
+          ? p.dLarge : p.dSmall) / 2;
+        const L = p.length;
+        const RzAt = z => Rs + (Rl - Rs) * (z / L);      // radius z m from small end
         const layout = buildLayout(p);
+        const N = 60;
         const boards = layout.map(b => {
-          const radii = [];
-          const N = 60;
-          const dx = (b.x2 - b.x1) / N, dy = (b.y2 - b.y1) / N;
-          for (let i = 0; i < N; i++) {
-            const y = b.y1 + (i + 0.5) * dy;
-            for (let j = 0; j < N; j++) {
-              const x = b.x1 + (j + 0.5) * dx;
-              const rr = Math.sqrt(x * x + y * y);
-              if (rr <= Rmean) radii.push(rr);
+          const len = b.length;
+          const dx = (b.x2 - b.x1) / N, dy = (b.y2 - b.y1) / N, dA = dx * dy;
+          const RminB = Math.min(RzAt(b.zStart), RzAt(b.zEnd));
+          const corner = Math.max(Math.hypot(b.x1, b.y1), Math.hypot(b.x2, b.y1),
+            Math.hypot(b.x1, b.y2), Math.hypot(b.x2, b.y2));
+          let shared = null;
+          if (corner <= RminB) {                          // solid over the whole log
+            const rr = [];
+            for (let i = 0; i < N; i++) {
+              const y = b.y1 + (i + 0.5) * dy;
+              for (let j = 0; j < N; j++) {
+                const x = b.x1 + (j + 0.5) * dx;
+                rr.push(Math.sqrt(x * x + y * y));
+              }
             }
+            shared = packRadii(rr, dA);
           }
-          const dA = dx * dy;
-          let rs = 0;
-          for (let k = 0; k < radii.length; k++) rs += radii[k];
-          return { b: b, radii: radii, dA: dA, area: radii.length * dA, rs: rs * dA };
+          const stations = [];
+          for (let k = 0; k < NZ; k++) {
+            const z = b.zStart + (k + 0.5) * len / NZ;
+            const R = RzAt(z);
+            let st = shared;
+            if (!st) {
+              const rr = [];
+              for (let i = 0; i < N; i++) {
+                const y = b.y1 + (i + 0.5) * dy;
+                for (let j = 0; j < N; j++) {
+                  const x = b.x1 + (j + 0.5) * dx;
+                  const r2 = x * x + y * y;
+                  if (r2 <= R * R) rr.push(Math.sqrt(r2));
+                }
+              }
+              st = packRadii(rr, dA);
+            }
+            stations.push({
+              R: R, dz: len / NZ, dA: dA, radii: st.radii, cum: st.cum,
+              area: st.radii.length * dA, rs: st.cum[st.cum.length - 1] * dA
+            });
+          }
+          return { b: b, stations: stations };
         });
-        return { boards: boards, warnings: layout.warnings || [], Rmean: Rmean };
+        return { boards: boards, warnings: layout.warnings || [] };
       }
 
       // Main computation. p = {dSmall,dLarge,length,thickCore,thickSide,kerf,
-      //   edgeTrim,pattern,cantWidth, mcSap,mcHeart,rhoCore,rhoPerimeter,
-      //   shrinkVol,heartFrac}
+      //   pattern,cantWidth, sideWidth,waneWidthFrac,waneThickFrac,minBoardLen,
+      //   mcSap,mcHeart,rhoCore,rhoPerimeter,shrinkVol,heartFrac}
+      // Boards are integrated over the stations of their own length of log, so
+      // the taper and any remaining (within-limit) wane are accounted for.
       function compute(p) {
         const key = prepKey(p);
-        if (PREP.key !== key) PREP = prepareBoards(p);
-        const Rmean = PREP.Rmean;
-        const Rhm = Rmean * p.heartFrac;          // heartwood radius at mean section
+        if (PREP.key !== key) { PREP = prepareBoards(p); PREP.key = key; }
+        // Densities are given per oven-dry volume; convert to the internal
+        // basic density: rho_b = rho_od * V_od / V_green.
+        const odF = 1 - (p.shrinkVol || 0) / 100;
+        const rbC = p.rhoCore * odF, rbP = p.rhoPerimeter * odF;
 
         const boards = [];
 
         PREP.boards.forEach((pb, idx) => {
           const b = pb.b;
-          const A = pb.area * 1e-6;               // m^2 (mm^2 -> m^2)
-          if (A <= 0) return;
-          const Ir = pb.rs * 1e-9;                // m^3 (mm^3 -> m^3)
-          // heartwood sub-integrals from the cached cell radii (natural
-          // cell order, so identical to rectRadial's accumulation)
-          let cntH = 0, rsh = 0;
-          const radii = pb.radii;
-          for (let k = 0; k < radii.length; k++) {
-            const rr = radii[k];
-            if (rr <= Rhm) { cntH++; rsh += rr; }
+          let volG = 0, dry = 0, water = 0, hwdz = 0;     // dz-weighted integrals
+          for (const st of pb.stations) {
+            const A = st.area * 1e-6;                   // m^2
+            const Ir = st.rs * 1e-9;                    // m^3
+            // heartwood sub-integrals: cells with r <= rh at this station
+            const i = upperBound(st.radii, st.R * p.heartFrac);
+            const AH = i * st.dA * 1e-6;
+            const IrH = st.cum[i] * st.dA * 1e-9;
+            const Rm = st.R / 1000;                     // m
+            // linear radial basic density rho(r) = rbC + (rbP - rbC) * r / R
+            const dryPerM = rbC * A + (rbP - rbC) * Ir / Rm;   // kg per m length
+            const dhPerM = rbC * AH + (rbP - rbC) * IrH / Rm;  // heartwood part
+            const dsPerM = dryPerM - dhPerM;                   // sapwood part
+            dry += dryPerM * st.dz;
+            water += (dhPerM * p.mcHeart + dsPerM * p.mcSap) / 100 * st.dz;
+            volG += A * st.dz;                                 // green volume, m^3
+            hwdz += AH * st.dz;
           }
-          const AH = cntH * pb.dA * 1e-6;
-          const IrH = rsh * pb.dA * 1e-9;
-          const Rm = Rmean / 1000;              // m
-          // Densities given as oven-dry density (oven-dry mass / oven-dry
-          // volume). Internally the sawn board has its green volume, so
-          // convert to basic density: rho_b = rho_od * V_od / V_green.
-          const odF = 1 - (p.shrinkVol || 0) / 100;
-          const rbC = p.rhoCore * odF, rbP = p.rhoPerimeter * odF;
-          // linear radial basic density rho(r) = rbC + (rbP - rbC) * r / R
-          const dryPerM = rbC * A + (rbP - rbC) * Ir / Rm;   // kg per m length
-          const dhPerM = rbC * AH + (rbP - rbC) * IrH / Rm; // heartwood part
-          const dsPerM = dryPerM - dhPerM;                  // sapwood part
-          const dry = dryPerM * p.length;
-          const water = (dhPerM * p.mcHeart + dsPerM * p.mcSap) / 100 * p.length;
-          const volG = A * p.length;                        // green volume, m^3
+          if (!(volG > 0)) return;                          // no wood: not produced
           const mc = dry > 0 ? 100 * water / dry : 0;        // % dry basis
           const rhoOvenDry = dry / (volG * odF);             // kg/m^3, oven-dry volume basis
           const rhoGreen = (dry + water) / volG;             // kg/m^3, green volume basis
           const isV = b.orient === "v";
           const thk = isV ? b.x2 - b.x1 : b.y2 - b.y1;
           const wSawn = isV ? b.y2 - b.y1 : b.x2 - b.x1;
-          // solid (wane-free) width: board wood area / thickness. Equal to the
-          // sawn width for a rectangular board, less for a board with wane.
-          const wSolid = thk > 0 ? pb.area / thk : 0;
+          const len = b.length;
+          // mean solid (wane-free) width over the board = solid area / thickness
+          const wSolid = (len > 0 && thk > 0) ? (volG * 1e6) / (len * thk) : 0;
           boards.push({
-            no: idx + 1, label: b.label, isCant: !!b.isCant,
+            no: idx + 1, label: b.label, isCant: !!b.isCant, orient: b.orient,
             y1: +b.y1.toFixed(2), y2: +b.y2.toFixed(2),
             x1: +b.x1.toFixed(2), x2: +b.x2.toFixed(2),
             thickness: +thk.toFixed(1),
-            width: +wSawn.toFixed(0),
-            widthSolid: +wSolid.toFixed(0),
+            width: +wSawn.toFixed(2),
+            widthSolid: +wSolid.toFixed(2),
             wanePct: wSawn > 0 ? 100 * (1 - wSolid / wSawn) : 0,
-            length: p.length,
-            heartPct: 100 * AH / A, sapPct: 100 * (A - AH) / A,
-            volume: volG, dryMass: dry, waterMass: water,
+            length: +len.toFixed(2),
+            zStart: +b.zStart.toFixed(2), trim: b.trim || "full",
+            heartPct: 100 * hwdz / volG, sapPct: 100 * (volG - hwdz) / volG,
+            volume: volG, volumeSawn: wSawn * thk * len * 1e-6,
+            dryMass: dry, waterMass: water,
             mc: mc, rhoOvenDry: rhoOvenDry, rhoGreen: rhoGreen, greenWeight: dry + water
           });
         });
@@ -549,7 +722,11 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
         };
       }
 
-      return { SPECIES, buildLayout, compute, rectInside, rectRadial, sampleHeartFrac, sampleLogDensity, sampleMc, gaussian };
+      return {
+        SPECIES, buildLayout, compute, rectInside, rectRadial, upperBound,
+        waneReqRadius, planSideBoard, NZ,
+        sampleHeartFrac, sampleLogDensity, sampleMc, gaussian
+      };
     })();
   </script>
   <script id="ui">
@@ -605,7 +782,9 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
         length: num("length"),
         pattern: $("pattern").value,
         thickCore: num("thickCore"), thickSide: num("thickSide"), kerf: num("kerf"),
-        edgeTrim: num("edgeTrim"), cantWidth: num("cantWidth")
+        cantWidth: num("cantWidth"),
+        sideWidth: num("sideWidth"), minBoardLen: num("minBoardLen"),
+        waneWidthFrac: num("waneWidthFrac"), waneThickFrac: num("waneThickFrac")
       };
     }
 
@@ -651,8 +830,9 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
       // or unparseable (e.g. wrong decimal character)
       const checks = [
         ["dSmall", v => v > 0], ["dLarge", v => v >= 0], ["length", v => v > 0],
-        ["thickCore", v => v > 0], ["thickSide", v => v > 0], ["kerf", v => v >= 0], ["edgeTrim", v => v >= 0],
-        ["cantWidth", v => v >= 0],
+        ["thickCore", v => v > 0], ["thickSide", v => v > 0], ["kerf", v => v >= 0],
+        ["cantWidth", v => v >= 0], ["sideWidth", v => v > 0], ["minBoardLen", v => v >= 0],
+        ["waneWidthFrac", v => v >= 0 && v <= 1], ["waneThickFrac", v => v >= 0 && v <= 1],
         ["mcSap", v => v > 0], ["mcHeart", v => v > 0],
         ["rhoMin", v => v > 0], ["rhoMax", v => v > 0],
         ["heartFracMin", v => v >= 0 && v <= 1], ["heartFracMax", v => v > 0 && v <= 1]
@@ -662,6 +842,10 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
         const el = $(id), v = p[id];
         if (!ok(v)) { el.classList.add("bad"); bad.push(id); }
         else el.classList.remove("bad");
+      }
+      // a side board narrower than it is thick cannot be produced at all
+      if (p.sideWidth < p.thickSide && !$("sideWidth").classList.contains("bad")) {
+        $("sideWidth").classList.add("bad"); bad.push("sideWidth (narrower than the side board thickness)");
       }
       if (bad.length) {
         $("boardTable").innerHTML = '<p class="note" style="color:#b3541e">⚠ Please check the highlighted input fields' +
@@ -682,7 +866,8 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
       if (!r.boards.length) {
         $("boardTable").innerHTML = warnHtml +
           '<p class="note">No boards fit this log with the chosen thicknesses/kerf/cant. ' +
-          'Reduce the core or side board thickness, cant width or kerf, or use a larger log.</p>';
+          'Reduce the core or side board thickness, cant width or kerf, allow more wane in the Side board section, ' +
+          'or use a larger log.</p>';
         $("chart").innerHTML = ""; $("cross").innerHTML = "";
         $("boardSelect").innerHTML = ""; $("chartRho").innerHTML = "";
         return;
@@ -704,12 +889,14 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
 
     function renderTable(warnHtml) {
       const p = LAST.p, r = LAST.base;
-      // volumes: lumber = sum of board volumes; log = truncated cone
-      const lumberVol = r.boards.reduce((s, b) => s + b.volume, 0);
+      // volumes: lumber = sawn volume of the boards produced; solid = the wood
+      // they actually contain (wane left inside the limits excluded); log = cone
+      const lumberVol = r.boards.reduce((s, b) => s + b.volumeSawn, 0);
+      const solidVol = r.boards.reduce((s, b) => s + b.volume, 0);
       const D0 = p.dSmall / 1000, D1 = p.dLarge / 1000;
       const logVol = Math.PI / 12 * p.length * (D0 * D0 + D0 * D1 + D1 * D1);
       let html = warnHtml + '<table><tr><th>Board</th><th>Thickness (mm)</th><th>Width sawn (mm)</th><th>Width solid (mm)</th>' +
-        '<th>Length (m)</th>' +
+        '<th>Length (m)</th><th>Wane trim</th>' +
         '<th>Heartwood %</th><th>Sapwood %</th><th>MC % avg (min–max)</th>' +
         '<th>Oven-dry density kg/m³ — avg (SD)</th></tr>';
       LAST.perBoard.forEach((pb, i) => {
@@ -718,19 +905,36 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
         html += '<tr><td>' + b.label + '</td><td>' + fmt(b.thickness, 1) +
           '</td><td>' + fmt(b.width, 0) + '</td><td>' + fmt(b.widthSolid, 0) +
           '</td><td>' + fmt(b.length, 2) +
+          '</td><td>' + trimText(b) +
           '</td><td>' + fmt(b.heartPct, 0) + '</td><td>' + fmt(b.sapPct, 0) +
           '</td><td><b>' + fmt(mc.mean, 0) + '</b> (' + fmt(mc.min, 0) + '–' + fmt(mc.max, 0) + ')</td>' +
           '<td><b>' + fmt(rho.mean, 0) + '</b> (' + fmt(rho.sd, 0) + ')</td></tr>';
       });
       html += '</table>' +
-    '<p style="font-size:.9rem;margin:8px 0 0"><b>Total lumber volume</b> ' +
-    fmt(lumberVol, 3) + ' m³ · <b>Total log volume</b> ' + fmt(logVol, 2) + ' m³</p>' +
-    '<p class="note">Board naming: <b>Core 1…n</b> are the boards resawn from the cant (centre of the log, tag C), <b>Side 1…n</b> are the side boards above and below the cant (tag S) and <b>Side R1 / Side L1</b> are the boards on the flanks (tags R and L). “Width sawn” is the board width as sawn (it may include wane, so it can be wider than the cant); “Width solid” is the wane-free width, i.e. board wood area ÷ thickness. Lumber volume counts solid wood only, so a waney side board contributes less than sawn width × thickness × length.</p>' +
-    '<p class="note">Oven-dry density = oven-dry mass / oven-dry volume, interpolated ' +
+        '<p style="font-size:.9rem"><b>Solid wood</b> ' + fmt(solidVol, 3) + ' m³ · <b>Recovery</b> ' +
+        fmt(100 * lumberVol / logVol, 2) + ' % of the log as sawn lumber (' +
+        fmt(100 * solidVol / logVol, 2) + ' % as solid wood excl. wane)</p>' +
+        '<p style="font-size:.9rem;margin:8px 0 0"><b>Total lumber volume</b> ' +
+        fmt(lumberVol, 3) + ' m³ · <b>Total log volume</b> ' + fmt(logVol, 2) + ' m³</p>' +
+        '<p class="note">Board naming: <b>Core 1…n</b> are the boards resawn from the cant (centre of the log, tag C), <b>Side 1…n</b> are the side boards above and below the cant (tag S) and <b>Side R1 / Side L1</b> are the boards on the flanks (tags R and L). “Width sawn” is the board width as sawn (it may include wane, so it can be wider than the cant); “Width solid” is the wane-free width, i.e. board wood area ÷ thickness. Lumber volume counts the boards as sawn (its wane included), and “Solid wood” excludes it, so a waney side board holds less wood than its sawn width × thickness × length.</p>' +
+        '<p class="note">Oven-dry density = oven-dry mass / oven-dry volume, interpolated ' +
         'linearly from core to perimeter. Between logs, the radial density range is 0.7 × the species ' +
         'range and is placed randomly inside it, so each board’s density varies between logs — shown ' +
         'as avg (SD). Heart/Sap % are at the mean fraction.</p>';
+      html += '<p class="note">Wane trim — how the wane limits were applied: "full length" (the whole log meets the limits at ' +
+        'this board width) or "cut to X m" (the board was shortened from the small end towards the large end so that the wane ' +
+        'stays inside the limits). A side board is only produced if what is left is at least the shortest allowed board ' +
+        'length — side boards are never edged down to a narrower width; those boards are listed as warnings above and ' +
+        'produce no lumber. "Solid wood" is the wood the boards actually contain, over the length they really have; lumber ' +
+        'volume also counts the wane that is left inside the limits. Heartwood and sapwood percentages are averaged over ' +
+        'the board length.</p>';
       $("boardTable").innerHTML = html;
+    }
+
+    // What the wane limits did to a side board.
+    function trimText(b) {
+      if (b.trim === "cut") return "cut to " + fmt(b.length, 2) + " m";
+      return "full length";
     }
 
     // Short tag shared by the cross-section diagram and the MC chart.
@@ -776,6 +980,7 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
       s += '<text x="8" y="' + (H - 24) + '" font-size="11" fill="#1c241c">□ side boards (edged to cant width, wane allowed) · ■ core boards · green ring = sapwood · light brown = Hmax zone · dark brown = always heartwood (Hmin)</text>';
       s += '<text x="8" y="' + (H - 8) + '" font-size="11" fill="#1c241c">Ø' + p.dSmall + '/' + p.dLarge +
         ' mm (mid-length Ø' + Math.round(2 * Rmid) + ' mm) · board widths limited by the small end</text>';
+      s += '<text x="8" y="' + (H - 40) + '" font-size="11" fill="#1c241c">Side-board wane is trimmed: the board is cut back towards the large end until the wane limits are met, and is only produced if that leaves at least the shortest allowed board length</text>';
       s += '</svg>';
       $("cross").innerHTML = s;
     }
@@ -871,12 +1076,14 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
 
     function exportCsv() {
       if (!LAST) { run(); if (!LAST) return; }
-      const rows = [["item", "thickness_mm", "width_sawn_mm", "width_solid_mm", "length_m", "heartwood_pct_mean",
-        "MC_avg_pct", "MC_min_pct", "MC_max_pct", "rhoOvenDry_ODvol_kg_m3"]];
+      const rows = [["item", "thickness_mm", "width_sawn_mm", "width_solid_mm", "length_m", "wane_trim",
+        "heartwood_pct_mean", "MC_avg_pct", "MC_min_pct", "MC_max_pct",
+        "volume_sawn_m3", "volume_solid_m3", "rhoOvenDry_ODvol_kg_m3"]];
       LAST.base.boards.forEach((b, i) => {
         const mc = stats(LAST.perBoard[i].values);
-        rows.push([b.label, b.thickness, b.width, b.widthSolid, b.length, fmt(b.heartPct, 1),
-        fmt(mc.mean, 1), fmt(mc.min, 1), fmt(mc.max, 1), fmt(b.rhoOvenDry, 1)]);
+        rows.push([b.label, b.thickness, b.width, b.widthSolid, fmt(b.length, 2), b.trim,
+        fmt(b.heartPct, 1), fmt(mc.mean, 1), fmt(mc.min, 1), fmt(mc.max, 1),
+        fmt(b.volumeSawn, 5), fmt(b.volume, 5), fmt(b.rhoOvenDry, 1)]);
       });
       const csv = rows.map(r => r.join(",")).join("\n");
       const a = document.createElement("a");
