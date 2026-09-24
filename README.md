@@ -8,11 +8,10 @@ density** of lumber before or after sawing, from:
 - the sawing pattern (through-and-through, or cant + side boards) with **core board
   thickness**, **side board thickness**, kerf and cant width,
 - **side board** settings: product **width**, **shortest board length** and the two
-  **wane limits** (maximum wane fraction of the width / of the thickness). A blank
-  **cant width** means the cant is the biggest square that fits the small end;
-  typing a width caps the cant at that value (clamped again to what fits), and
-  the value `0` means no cant. So the cant — and with it the number of **core
-  boards** — grows with the log diameter instead of being fixed.
+  **wane limits** (maximum wane fraction of the width / of the thickness). The
+  **cant width** is a fixed width that is kept as typed (`0` means no cant); the
+  cant is cut as tall as the log allows, so the number of **core boards** grows
+  with the log diameter instead of being fixed.
 - species properties: sapwood/heartwood green MC, species minimum/maximum
   oven-dry density, heartwood diameter range, volumetric shrinkage.
 
@@ -38,10 +37,13 @@ For online use, the app is served by GitHub Pages at:
 
    Side boards are sawn to the **side board thickness** and to the **side board
    width** (never wider than the cant, and never wider than the log's chord at
-   their inner face at the small end). A cant wider than the inscribed square
-   (√2 × radius) is clamped with a warning. Where the log boundary cuts a board
-   corner the board keeps its sawn dimensions but only the wood inside the log
-   counts (wane) — see the wane rule below.
+   their inner face at the small end). The cant keeps its typed width and is cut
+   as tall as fits inside the small end, then resawn across its height into core
+   boards — so a large log yields more core rows, not merely more side boards. A
+   width so wide that not even one core board would fit is clamped to the widest
+   cant that still holds one, with a warning. Where the log boundary cuts a
+   board corner the board keeps its sawn dimensions but only the wood inside the
+   log counts (wane) — see the wane rule below.
 2. **Wane rule (side boards)** — wane is measured as a fraction of the board's
    own width (wood missing across the outer face) and of its thickness (wood
    missing at the width edge). Both must stay within the two limits. Because the
@@ -50,8 +52,8 @@ For online use, the app is served by GitHub Pages at:
    log is used. If what is left is shorter than the **shortest board length**, the
    board is **not produced at all** (a side board is never edged down to a
    narrower board); such boards are reported as warnings. A cylindrical log can
-   therefore produce no side boards at all. Core boards sit inside the inscribed
-   square, are wane-free and use the full log length.
+   therefore produce no side boards at all. Core boards sit inside the cant
+   block, are wane-free and use the full log length.
 3. **Between-log variation (Monte Carlo, 1000 logs)** — for every simulated log:
    - heartwood fraction ~ Normal((min + max)/2, (max − min)/4), kept within
      [min, max],
@@ -99,9 +101,9 @@ With Node.js installed:
 
 ```
 node test.mjs     # engine math: limiting cases, analytic integrals, conservation,
-                  # layout geometry, wane trimming, samplers (72 checks)
+                  # layout geometry, wane trimming, samplers (90 checks)
 node uitest.mjs   # full UI render against a DOM stub: table, cross-section, both
-                  # histograms, board selection, wane warnings (25 checks)
+                  # histograms, board selection, wane warnings (30 checks)
 ```
 
 Both extract the engine/UI scripts straight out of `index.html`, so the shipped

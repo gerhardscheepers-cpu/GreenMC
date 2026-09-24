@@ -103,31 +103,49 @@ r = E.compute({ ...p1, pattern: "cant", cantWidth: 100 });
 if (!r.boards.some(b => b.isCant)) { console.log("FAIL  no cant in output"); fails++; }
 else console.log("PASS  cant item present");
 
-// effective cant width rule: 0 = no cant rows; a positive number caps the
-// cant at that width (clamped to the inscribed square); non-finite (blank)
-// means take the biggest square that fits the small end.
-function effCantWidth(cantWidth, dSmall) {
-  if (cantWidth === 0) return 0;
-  const maxCw = Math.SQRT2 * dSmall / 2;
-  if (typeof cantWidth === "number" && isFinite(cantWidth) && cantWidth > 0)
-    return Math.min(cantWidth, maxCw);
-  return maxCw;
+// effective cant model: 0 = no cant rows; a positive width is kept as the
+// cant width, clamped to the widest cant that still holds one core board of
+// thickness tC.  The block is then cut as tall as the small end allows and
+// resawn into rows, so the number of core rows grows with the log diameter.
+function effCantModel(cantWidth, dSmall, tC) {
+  if (!(cantWidth > 0)) return { cw: 0 };
+  const R = dSmall / 2;
+  const cwMax = 2 * Math.sqrt(Math.max(0, R * R - (tC / 2) * (tC / 2)));
+  if (cwMax <= 0) return { cw: 0 };
+  const cw = Math.min(cantWidth, cwMax);
+  const maxCh = 2 * Math.sqrt(Math.max(0, R * R - (cw / 2) * (cw / 2)));
+  return { cw: cw, maxCh: maxCh };
 }
 
-// 8. cant wider than the inscribed square gets clamped, not dropped:
-//    Ø200 log (R=100) -> max cant = 141 mm; user asks 200 -> clamped,
-//    a cant item must still exist and a warning be raised.
-r = E.compute({ ...p1, dSmall: 200, dLarge: 200, pattern: "cant", cantWidth: 200 });
+// 8. a cant too wide to hold a core board is clamped, not dropped: on a Ø200
+//    log (R=100) with 25 mm core boards the widest usable cant is
+//    2*sqrt(100^2 - 12.5^2) = 198.4 mm; asking 250 -> clamped, one row,
+//    and a warning is raised.
+r = E.compute({ ...p1, dSmall: 200, dLarge: 200, pattern: "cant", cantWidth: 250 });
 if (!r.boards.some(b => b.isCant)) { console.log("FAIL  oversized cant was dropped"); fails++; }
 else console.log("PASS  oversized cant clamped, not dropped");
 if (!r.warnings.length) { console.log("FAIL  expected clamp warning"); fails++; }
 else console.log("PASS  clamp warning raised:", r.warnings[0]);
-// cant rows together must not exceed the inscribed-square area
+// cant rows must stay inside the circle: their area may not exceed the block
 const cantRows8 = r.boards.filter(b => b.isCant);
-const cantArea = cantRows8.reduce((s, b) => s + b.volume / p1.length, 0);
-if (cantArea > 0.020001) { console.log("FAIL  cant volume exceeds inscribed square"); fails++; }
-else console.log("PASS  cant rows within inscribed square (area", (cantArea * 1e6).toFixed(0), "mm²,",
+const model8 = effCantModel(250, 200, p1.thickCore);
+eq("clamped Ø200 cant is the widest that still holds a core row", r.cantWidth, model8.cw, 0.11);
+eq("Ø200/250 clamped cant holds exactly one 25 mm core row", cantRows8.length, 1, 0);
+const cantArea8 = cantRows8.reduce((s, b) => s + b.volume, 0) / p1.length;
+const blk8 = model8.cw * model8.maxCh * 1e-6;
+if (cantArea8 > blk8 * 1.001 + 1e-9) { console.log("FAIL  cant volume exceeds cant block"); fails++; }
+else console.log("PASS  cant rows within the cant block (area", (cantArea8 * 1e6).toFixed(0), "mm²,",
   cantRows8.length, "rows)");
+// the clamped row must still fit the log.  Board coordinates are reported
+// rounded to 0.01 mm, so allow that much on the radius; the exact sawn width is
+// checked against the chord at the row's inner face.
+if (cantRows8.some(b => Math.hypot(Math.max(Math.abs(b.x1), Math.abs(b.x2)),
+  Math.max(Math.abs(b.y1), Math.abs(b.y2))) > 100 + 0.02)) {
+  console.log("FAIL  clamped cant row reaches outside the log"); fails++;
+} else console.log("PASS  clamped cant row stays inside the log circle");
+if (cantRows8.some(b => b.width > 2 * Math.sqrt(100 * 100 - (p1.thickCore / 2) ** 2) + 0.01)) {
+  console.log("FAIL  clamped cant row is wider than the chord at its inner face"); fails++;
+} else console.log("PASS  clamped cant row width equals the chord at its inner face");
 
 // 9. cant layout: cant resawn into rows + vertical side boards left/right
 const pc = { ...p1, pattern: "cant", cantWidth: 120 };
@@ -136,7 +154,7 @@ const cantRows = r.boards.filter(b => b.isCant);
 const sides = r.boards.filter(b => /^Side/.test(b.label));
 if (cantRows.length < 2) { console.log("FAIL  expected several cant rows, got", cantRows.length); fails++; }
 else console.log("PASS  cant resawn into", cantRows.length, "rows");
-const sideCantExpect = effCantWidth(pc.cantWidth, pc.dSmall);
+const sideCantExpect = effCantModel(pc.cantWidth, pc.dSmall, pc.thickCore).cw;
 if (r.cantWidth === 0 || Math.abs(r.cantWidth - sideCantExpect) > 0.11) {
   console.log("FAIL  compute().cantWidth should echo the cant width used, got", r.cantWidth); fails++;
 } else console.log("PASS  compute() reports the cant width used (" + r.cantWidth + " mm)");
@@ -157,24 +175,26 @@ for (let i = 0; i < r.boards.length && !overlap; i++) for (let j = i + 1; j < r.
 }
 if (!overlap) console.log("PASS  no overlapping board rectangles");
 else fails++;
-// cant rows together span no more than the cant width
+// cant rows stack to the block height: they may span more than the typed cant
+// width, but no more than the block height the circle allows for that width
+const rowModel8 = effCantModel(pc.cantWidth, pc.dSmall, pc.thickCore);
 const rowThick = cantRows.reduce((s, b) => s + (b.y2 - b.y1), 0)
   + (cantRows.length - 1) * pc.kerf;
-if (rowThick > Math.min(pc.cantWidth, Math.SQRT2 * pc.dSmall / 2) + 0.01) {
-  console.log("FAIL  cant rows exceed cant width:", rowThick); fails++;
-} else console.log("PASS  cant rows span", rowThick, "mm <= cant width");
+if (rowThick > rowModel8.maxCh + 0.51) {
+  console.log("FAIL  cant rows exceed cant block height:", rowThick); fails++;
+} else console.log("PASS  cant rows span", rowThick, "mm (block allows", rowModel8.maxCh.toFixed(1), "mm)");
 
 // 9b. core/side board thicknesses, side-board width and wane trimming.
-//     Defaults (Ø220/250, cant 155 = inscribed square): 3 core rows plus 4
-//     side boards — above and below the cant and on both flanks — sawn to the
-//     side thickness, edged to the 125 mm side board width and cut back from
-//     the small end until the wane limits are met.
+//     Defaults (Ø220/250, fixed 155 mm cant grown tall): resawn rows of the
+//     full-height 155 mm block plus side boards — above and below the cant and
+//     on both flanks — sawn to the side thickness, edged to the 125 mm side
+//     board width and cut back from the small end until the wane limits are met.
 const pDef = { ...sideDef, dSmall: 220, dLarge: 250, length: 4.2, thickCore: 50, thickSide: 25,
   kerf: 2.5, pattern: "cant", cantWidth: 155,
   mcSap: 120, mcHeart: 40, rhoCore: 455, rhoPerimeter: 568, shrinkVol: 12, heartFrac: 0.45 };
 const dDef = E.compute(pDef).boards;
 const dCore = dDef.filter(b => b.isCant), dSide = dDef.filter(b => !b.isCant);
-const cwDef = Math.min(pDef.cantWidth, Math.SQRT2 * pDef.dSmall / 2);
+const cwDef = Math.min(pDef.cantWidth, pDef.dSmall);
 if (!(dCore.length === 3 && dSide.length === 4)) {
   console.log("FAIL  expected 3 core + 4 side boards, got", dCore.length, "core,", dSide.length, "side"); fails++;
 } else console.log("PASS  Ø220/cant 155 yields", dCore.length, "core +", dSide.length, "side boards");
@@ -329,39 +349,59 @@ for (const pc of [pDef, pEx, pEx125, pCyl, pMin, { ...pDef, dSmall: 400, dLarge:
 }
 if (shortBad.length) { console.log("FAIL  boards shorter than allowed:", shortBad.join(", ")); fails++; }
 else console.log("PASS  no produced board is shorter than the shortest allowed length");
-// 9e. cant width is not limited: with the cant field blank the cant is the
-// biggest square that fits the small end, so the core rows grow with the log
-// (and the number of side boards to go with them). Typed widths are an upper
-// cap and must never resaw more rows than the blank form on the same log.
+// 9e. fixed-width, taller cant: the typed width is kept (the log never widens
+//     or narrows it), but the block is cut as tall as the small end allows, so
+//     the number of core boards grows with the log diameter.  Ø220/250 with a
+//     155 mm cant gives the familiar 3 rows of 50 mm and 2 rows of 75 mm; a
+//     much larger log gives more of both.
 function coreCount(pp) { return E.compute(pp).boards.filter(b => b.isCant).length; }
-const pBig50 = { ...pDef, dSmall: 600, dLarge: 650, cantWidth: NaN };
-const pBig75 = { ...pBig50, thickCore: 75 };
+const p50 = { ...pDef, cantWidth: 155, thickCore: 50 };
+const p75 = { ...p50, thickCore: 75 };
+eq("Ø220/250, cant 155, 50 mm core -> 3 core rows", coreCount(p50), 3, 0);
+eq("Ø220/250, cant 155, 75 mm core -> 2 core rows", coreCount(p75), 2, 0);
+const pBig50 = { ...p50, dSmall: 600, dLarge: 650 };
+const pBig75 = { ...p75, dSmall: 600, dLarge: 650 };
 const nBig50 = coreCount(pBig50), nBig75 = coreCount(pBig75);
-const pBigCap = { ...pBig50, cantWidth: 155 };
-if (!(nBig50 >= 8)) { console.log("FAIL  blank cant on Ø600/650 @50 mm should give >= 8 core rows, got", nBig50); fails++; }
-else console.log("PASS  blank cant on Ø600/650 @50 mm gives", nBig50, "core rows");
-if (!(nBig75 >= 5)) { console.log("FAIL  blank cant on Ø600/650 @75 mm should give >= 5 core rows, got", nBig75); fails++; }
-else console.log("PASS  blank cant on Ø600/650 @75 mm gives", nBig75, "core rows");
-eq("blank cant grows with the log", coreCount({ ...pBig50, dSmall: 300, dLarge: 320 }),
-  Math.max(1, Math.floor((Math.SQRT2 * 150 + 2.5) / (50 + 2.5))), 0);
-if (!(coreCount(pBigCap) <= nBig50)) {
-  console.log("FAIL  a 155 mm cap must not add core rows versus the blank form"); fails++;
-} else console.log("PASS  typed cant width caps the blank form (" + coreCount(pBigCap) + " <= " + nBig50 + " core rows)");
-const rBigBlank = E.compute(pBig50), rBigCap = E.compute(pBigCap);
-if (!(rBigBlank.cantWidth > rBigCap.cantWidth + 1)) {
-  console.log("FAIL  blank cant should be wider than the 155 mm cap", rBigBlank.cantWidth, rBigCap.cantWidth); fails++;
-} else console.log("PASS  blank auto cant is wider (" + rBigBlank.cantWidth + " mm vs " +
-  rBigCap.cantWidth + " mm cap), still inside the small end");
-const rBigRows = rBigBlank.boards.filter(b => b.isCant);
-if (rBigRows.some(b => b.trim !== "full" || Math.abs(b.width - rBigBlank.cantWidth) > Math.SQRT2 + 0.51)) {
-  console.log("FAIL  auto-cant core rows must be full length and cant-wide"); fails++;
-} else console.log("PASS  auto-cant core rows are full length and", rBigBlank.cantWidth, "mm wide");
-if (rBigBlank.boards.some(b => !b.isCant && b.width > Math.min(pBig50.sideWidth, rBigBlank.cantWidth) + 0.01)) {
-  console.log("FAIL  side boards wider than the side width / auto cant"); fails++;
-} else console.log("PASS  side boards stay within 125 mm and the auto cant");
-if (!(rBigBlank.boards.length > 14)) {
-  console.log("FAIL  the big log should yield a full breakdown, got", rBigBlank.boards.length, "boards"); fails++;
-} else console.log("PASS  big log yields", rBigBlank.boards.length, "boards in total");
+if (!(nBig50 > 3)) { console.log("FAIL  Ø600/650 @50 mm should give more than 3 core rows, got", nBig50); fails++; }
+else console.log("PASS  Ø600/650 with the same 155 mm cant gives", nBig50, "core rows of 50 mm");
+if (!(nBig75 > 2)) { console.log("FAIL  Ø600/650 @75 mm should give more than 2 core rows, got", nBig75); fails++; }
+else console.log("PASS  Ø600/650 with the same 155 mm cant gives", nBig75, "core rows of 75 mm");
+eq("the typed cant width is kept on a big log", E.compute(pBig50).cantWidth, 155, 0.11);
+// the cant must always be tall enough for its rows, never wider than asked,
+// and the whole block must stay inside the small end
+const rBig = E.compute(pBig50), rBigRows = rBig.boards.filter(b => b.isCant);
+if (rBigRows.some(b => b.trim !== "full" || Math.abs(b.width - rBig.cantWidth) > 0.51)) {
+  console.log("FAIL  core rows must be full length and cant-wide"); fails++;
+} else console.log("PASS  all", rBigRows.length, "core rows are full length and", rBig.cantWidth, "mm wide");
+if (rBigRows.some(b => Math.hypot(Math.max(Math.abs(b.x1), Math.abs(b.x2)),
+  Math.max(Math.abs(b.y1), Math.abs(b.y2))) > 300 + 1e-6)) {
+  console.log("FAIL  a core row reaches outside the small end"); fails++;
+} else console.log("PASS  the cant block stays inside the small-end circle");
+const blockH = rBigRows.reduce((s, b) => s + (b.y2 - b.y1), 0) + (rBigRows.length - 1) * pBig50.kerf;
+if (blockH > effCantModel(155, 600, 50).maxCh + 0.51) {
+  console.log("FAIL  cant block taller than the small end allows:", blockH); fails++;
+} else console.log("PASS  cant block is", blockH, "mm tall (small end allows",
+  effCantModel(155, 600, 50).maxCh.toFixed(0), "mm)");
+// a bigger log never gives fewer core rows at the same cant width, and a
+// narrower cant never gives fewer rows than a wider one
+const n300 = coreCount({ ...p50, dSmall: 300, dLarge: 320 });
+if (!(n300 >= 3 && nBig50 >= n300)) {
+  console.log("FAIL  core rows must not shrink as the log grows (Ø300:", n300, "Ø600:", nBig50, ")"); fails++;
+} else console.log("PASS  core rows grow with the log at a fixed width (Ø300:", n300, "-> Ø600:", nBig50, ")");
+if (!(coreCount({ ...pBig50, cantWidth: 100 }) >= nBig50)) {
+  console.log("FAIL  a narrower cant must not give fewer core rows"); fails++;
+} else console.log("PASS  a narrower cant gives at least as many core rows (100 mm:",
+  coreCount({ ...pBig50, cantWidth: 100 }), "vs 155 mm:", nBig50, ")");
+// side boards stay within the side board width and the cant
+if (rBig.boards.some(b => !b.isCant && b.width > Math.min(p50.sideWidth, rBig.cantWidth) + 0.01)) {
+  console.log("FAIL  side boards wider than the side width / cant"); fails++;
+} else console.log("PASS  side boards stay within", Math.min(p50.sideWidth, rBig.cantWidth),
+  "mm (side board width / cant)");
+if (!(rBig.boards.length > 14)) {
+  console.log("FAIL  the big log should yield a full breakdown, got", rBig.boards.length, "boards"); fails++;
+} else console.log("PASS  big log yields", rBig.boards.length, "boards in total");
+
+
 // cant = 0 keeps meaning "no cant rows at all"
 if (E.compute({ ...pBig50, cantWidth: 0 }).boards.some(b => b.isCant)) {
   console.log("FAIL  cantWidth 0 must give no cant rows"); fails++;
