@@ -103,6 +103,17 @@ r = E.compute({ ...p1, pattern: "cant", cantWidth: 100 });
 if (!r.boards.some(b => b.isCant)) { console.log("FAIL  no cant in output"); fails++; }
 else console.log("PASS  cant item present");
 
+// effective cant width rule: 0 = no cant rows; a positive number caps the
+// cant at that width (clamped to the inscribed square); non-finite (blank)
+// means take the biggest square that fits the small end.
+function effCantWidth(cantWidth, dSmall) {
+  if (cantWidth === 0) return 0;
+  const maxCw = Math.SQRT2 * dSmall / 2;
+  if (typeof cantWidth === "number" && isFinite(cantWidth) && cantWidth > 0)
+    return Math.min(cantWidth, maxCw);
+  return maxCw;
+}
+
 // 8. cant wider than the inscribed square gets clamped, not dropped:
 //    Ø200 log (R=100) -> max cant = 141 mm; user asks 200 -> clamped,
 //    a cant item must still exist and a warning be raised.
@@ -125,6 +136,10 @@ const cantRows = r.boards.filter(b => b.isCant);
 const sides = r.boards.filter(b => /^Side/.test(b.label));
 if (cantRows.length < 2) { console.log("FAIL  expected several cant rows, got", cantRows.length); fails++; }
 else console.log("PASS  cant resawn into", cantRows.length, "rows");
+const sideCantExpect = effCantWidth(pc.cantWidth, pc.dSmall);
+if (r.cantWidth === 0 || Math.abs(r.cantWidth - sideCantExpect) > 0.11) {
+  console.log("FAIL  compute().cantWidth should echo the cant width used, got", r.cantWidth); fails++;
+} else console.log("PASS  compute() reports the cant width used (" + r.cantWidth + " mm)");
 if (!sides.some(b => /Side L/.test(b.label)) || !sides.some(b => /Side R/.test(b.label))) {
   console.log("FAIL  missing side boards L/R"); fails++;
 } else console.log("PASS  side boards present both sides:", sides.map(b => b.label).join(", "));
@@ -314,6 +329,44 @@ for (const pc of [pDef, pEx, pEx125, pCyl, pMin, { ...pDef, dSmall: 400, dLarge:
 }
 if (shortBad.length) { console.log("FAIL  boards shorter than allowed:", shortBad.join(", ")); fails++; }
 else console.log("PASS  no produced board is shorter than the shortest allowed length");
+// 9e. cant width is not limited: with the cant field blank the cant is the
+// biggest square that fits the small end, so the core rows grow with the log
+// (and the number of side boards to go with them). Typed widths are an upper
+// cap and must never resaw more rows than the blank form on the same log.
+function coreCount(pp) { return E.compute(pp).boards.filter(b => b.isCant).length; }
+const pBig50 = { ...pDef, dSmall: 600, dLarge: 650, cantWidth: NaN };
+const pBig75 = { ...pBig50, thickCore: 75 };
+const nBig50 = coreCount(pBig50), nBig75 = coreCount(pBig75);
+const pBigCap = { ...pBig50, cantWidth: 155 };
+if (!(nBig50 >= 8)) { console.log("FAIL  blank cant on Ø600/650 @50 mm should give >= 8 core rows, got", nBig50); fails++; }
+else console.log("PASS  blank cant on Ø600/650 @50 mm gives", nBig50, "core rows");
+if (!(nBig75 >= 5)) { console.log("FAIL  blank cant on Ø600/650 @75 mm should give >= 5 core rows, got", nBig75); fails++; }
+else console.log("PASS  blank cant on Ø600/650 @75 mm gives", nBig75, "core rows");
+eq("blank cant grows with the log", coreCount({ ...pBig50, dSmall: 300, dLarge: 320 }),
+  Math.max(1, Math.floor((Math.SQRT2 * 150 + 2.5) / (50 + 2.5))), 0);
+if (!(coreCount(pBigCap) <= nBig50)) {
+  console.log("FAIL  a 155 mm cap must not add core rows versus the blank form"); fails++;
+} else console.log("PASS  typed cant width caps the blank form (" + coreCount(pBigCap) + " <= " + nBig50 + " core rows)");
+const rBigBlank = E.compute(pBig50), rBigCap = E.compute(pBigCap);
+if (!(rBigBlank.cantWidth > rBigCap.cantWidth + 1)) {
+  console.log("FAIL  blank cant should be wider than the 155 mm cap", rBigBlank.cantWidth, rBigCap.cantWidth); fails++;
+} else console.log("PASS  blank auto cant is wider (" + rBigBlank.cantWidth + " mm vs " +
+  rBigCap.cantWidth + " mm cap), still inside the small end");
+const rBigRows = rBigBlank.boards.filter(b => b.isCant);
+if (rBigRows.some(b => b.trim !== "full" || Math.abs(b.width - rBigBlank.cantWidth) > Math.SQRT2 + 0.51)) {
+  console.log("FAIL  auto-cant core rows must be full length and cant-wide"); fails++;
+} else console.log("PASS  auto-cant core rows are full length and", rBigBlank.cantWidth, "mm wide");
+if (rBigBlank.boards.some(b => !b.isCant && b.width > Math.min(pBig50.sideWidth, rBigBlank.cantWidth) + 0.01)) {
+  console.log("FAIL  side boards wider than the side width / auto cant"); fails++;
+} else console.log("PASS  side boards stay within 125 mm and the auto cant");
+if (!(rBigBlank.boards.length > 14)) {
+  console.log("FAIL  the big log should yield a full breakdown, got", rBigBlank.boards.length, "boards"); fails++;
+} else console.log("PASS  big log yields", rBigBlank.boards.length, "boards in total");
+// cant = 0 keeps meaning "no cant rows at all"
+if (E.compute({ ...pBig50, cantWidth: 0 }).boards.some(b => b.isCant)) {
+  console.log("FAIL  cantWidth 0 must give no cant rows"); fails++;
+} else console.log("PASS  cantWidth 0 still means no cant");
+
 // tighter wane limits can only reduce the solid volume
 const volOf = w => E.compute({ ...pDef, waneWidthFrac: w, waneThickFrac: 1 })
   .boards.reduce((s, b) => s + b.volume, 0);

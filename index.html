@@ -211,7 +211,7 @@
             value="25"></div>
       </div>
       <label>Kerf (mm)</label><input type="text" inputmode="decimal" id="kerf" step="0.1" value="2.5">
-      <label>Cant width (mm, 0 = none)</label>
+      <label>Cant width (mm; blank = biggest that fits, 0 = none)</label>
       <input type="text" inputmode="decimal" id="cantWidth" step="5" value="155">
       <h2 style="margin-top:14px">Side board</h2>
       <div class="row">
@@ -229,7 +229,9 @@
       <button id="calc">Calculate</button>
       <button id="csv" class="secondary">Export CSV</button>
       <button id="print" class="secondary">Print / PDF</button>
-      <p class="note">Sawing model: the cant is resawn into core boards of the core board thickness; the boards above
+      <p class="note">Sawing model: the cant takes the middle of the log and is resawn into core boards of the core board
+        thickness; with the field left blank the cant is the biggest square that fits the small end, so it (and the
+        number of core boards) grows with the log — a typed value caps it at that width instead. The boards above
         and
         below the cant and the boards on both flanks are side boards, sawn to the side board thickness and edged to the
         side
@@ -459,11 +461,15 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
         const raw = [];
         const warnings = [], dropped = [];
         let cw = 0;                                        // actual cant width used
-        if (p.pattern === "cant" && p.cantWidth > 0) {
+        if (p.pattern === "cant" && !(p.cantWidth === 0)) {
           // largest cant that fits a circle of radius R is the inscribed
-          // square: side = R*sqrt(2). Clamp user request and warn.
+          // square: side = R*sqrt(2). Blank (non-finite) input means "take the
+          // biggest square that fits the log", so the cant - and with it the
+          // number of core boards - grows with the log diameter. A typed value
+          // above that is clamped and warned about.
           const maxCw = Math.SQRT2 * R;
-          cw = p.cantWidth;
+          cw = (typeof p.cantWidth === "number" && isFinite(p.cantWidth) && p.cantWidth > 0)
+            ? p.cantWidth : maxCw;
           if (cw > maxCw) {
             warnings.push("Requested cant width " + p.cantWidth + " mm does not fit a Ø" +
               p.dSmall + " mm log; clamped to " + Math.round(maxCw) + " mm (inscribed-square maximum).");
@@ -556,6 +562,7 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
           take(b, plan);
         }
         out.warnings = warnings;
+        out.cantWidth = +cw.toFixed(1);     // actual cant width sawn (0 if live sawing)
         if (dropped.length) {
           const list = dropped.map(d => d.len > 0
             ? d.label + " (" + d.w.toFixed(0) + " mm wide gives " + d.len.toFixed(2) + " m)"
@@ -652,7 +659,7 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
           }
           return { b: b, stations: stations };
         });
-        return { boards: boards, warnings: layout.warnings || [] };
+        return { boards: boards, warnings: layout.warnings || [], cantWidth: layout.cantWidth || 0 };
       }
 
       // Main computation. p = {dSmall,dLarge,length,thickCore,thickSide,kerf,
@@ -719,7 +726,8 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
 
         return {
           boards: boards,
-          warnings: PREP.warnings
+          warnings: PREP.warnings,
+          cantWidth: PREP.cantWidth || 0
         };
       }
 
@@ -832,7 +840,7 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
       const checks = [
         ["dSmall", v => v > 0], ["dLarge", v => v >= 0], ["length", v => v > 0],
         ["thickCore", v => v > 0], ["thickSide", v => v > 0], ["kerf", v => v >= 0],
-        ["cantWidth", v => v >= 0], ["sideWidth", v => v > 0], ["minBoardLen", v => v >= 0],
+        ["cantWidth", v => isNaN(v) || v >= 0], ["sideWidth", v => v > 0], ["minBoardLen", v => v >= 0],
         ["waneWidthFrac", v => v >= 0 && v <= 1], ["waneThickFrac", v => v >= 0 && v <= 1],
         ["mcSap", v => v > 0], ["mcHeart", v => v > 0],
         ["rhoMin", v => v > 0], ["rhoMax", v => v > 0],

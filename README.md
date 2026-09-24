@@ -8,7 +8,11 @@ density** of lumber before or after sawing, from:
 - the sawing pattern (through-and-through, or cant + side boards) with **core board
   thickness**, **side board thickness**, kerf and cant width,
 - **side board** settings: product **width**, **shortest board length** and the two
-  **wane limits** (maximum wane fraction of the width / of the thickness),
+  **wane limits** (maximum wane fraction of the width / of the thickness). A blank
+  **cant width** means the cant is the biggest square that fits the small end;
+  typing a width caps the cant at that value (clamped again to what fits), and
+  the value `0` means no cant. So the cant — and with it the number of **core
+  boards** — grows with the log diameter instead of being fixed.
 - species properties: sapwood/heartwood green MC, species minimum/maximum
   oven-dry density, heartwood diameter range, volumetric shrinkage.
 

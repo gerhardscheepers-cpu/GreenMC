@@ -228,6 +228,29 @@ chk("cylindrical log: waney side boards dropped (no narrow boards)",
   cylSide.length === 0 && cylBoards.length > 0 && /Dropped \d+ side board/.test(tbl()));
 chk("cylindrical log: core rows still run the full log length",
   cylBoards.filter(b => b.isCant).every(b => Math.abs(b.length - pCyl.length) < 1e-9));
+// blank (non-finite) cant width auto-fits the biggest square to the log, so a
+// big log gets its core rows from the full square - including a table row and
+// correct 50 and 75 mm row counts of 8 and 5 on a Ø600/650 log
+const pBig = { ...p, dSmall: 600, dLarge: 650, thickCore: 50, kerf: 2.5, cantWidth: NaN };
+vm.runInContext(`
+  LAST = { p: ${JSON.stringify(pBig)}, ...buildDistribution(${JSON.stringify(pBig)}, 20) };
+  LAST.sel = LAST.perBoard.map(() => true);
+  renderAll();
+`, ctx);
+const bigBoards = vm.runInContext("LAST.base.boards", ctx);
+const bigCore50 = bigBoards.filter(b => b.isCant);
+chk("blank cant auto-fits a big log (8 rows of 50 mm on Ø600/650)", bigCore50.length === 8);
+const pBig75 = { ...pBig, thickCore: 75 };
+vm.runInContext(`
+  LAST = { p: ${JSON.stringify(pBig75)}, ...buildDistribution(${JSON.stringify(pBig75)}, 20) };
+  LAST.sel = LAST.perBoard.map(() => true);
+  renderAll();
+`, ctx);
+const bigCore75 = vm.runInContext("LAST.base.boards", ctx).filter(b => b.isCant);
+chk("blank cant auto-fits a big log (5 rows of 75 mm on Ø600/650)", bigCore75.length === 5);
+chk("auto cant width reported wider than the typed cap",
+  vm.runInContext("LAST.base.cantWidth", ctx) > 400);
+chk("no NaN after the auto-cant runs", !/NaN/.test(tbl()) && !/NaN/.test(elems["cross"].innerHTML));
 // dropped boards must surface as a visible warning (Ø265 + cant 155 leaves a
 // flank board with its outer face on the bark: it cannot be edged to anything
 // usable, so it is dropped rather than silently shrunk)
