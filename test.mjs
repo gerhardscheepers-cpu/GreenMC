@@ -31,8 +31,12 @@ const eq = (name, got, want, tol) => {
 
 // rectInside sanity: full circle area of r=100 -> pi*100^2 = 31415.9
 const p1 = { dSmall: 200, dLarge: 200, length: 3, thickCore: 25, thickSide: 25, kerf: 3,
-  edgeTrim: 0, pattern: "tnt", cantWidth: 0,
+  pattern: "tnt", cantWidth: 0,
   mcSap: 100, mcHeart: 50, rhoCore: 400, rhoPerimeter: 400, shrinkVol: 0, heartFrac: 0.5 };
+// Side-board wane settings, as the UI defaults. Omitted from a params object
+// the engine treats them as "no limit / no width cap / no length floor", which
+// reproduces the unlimited-wane behaviour used by the geometry tests below.
+const sideDef = { sideWidth: 125, minBoardLen: 2500, waneWidthFrac: 0.33, waneThickFrac: 0.5 };
 
 // 2. limiting case: heartFrac = 0 -> every board is 100% sapwood
 let r = E.compute({ ...p1, heartFrac: 0 });
@@ -66,16 +70,25 @@ const areaWant = 2 * integral(-50, 50); // area = ∫ 2*sqrt(R²−y²) dy over 
 const gotArea = E.rectInside(-200, 200, -50, 50, R, 400);
 eq("rectInside analytic circle area", gotArea, areaWant, areaWant * 0.002);
 
-// 5. mixed MC check ... mass/volume conservation at board level:
-//    volume must equal rectRadial area x length; greenWeight = dry+water
+// 5. mixed layout check: every board's volume must equal an independent
+//    integration of (rectangle ∩ log) along the tapered log, and the board
+//    masses must add up.
 r = E.compute({ ...p1, heartFrac: 0.4, dLarge: 300, pattern: "cant", cantWidth: 60 });
-const Rmean5 = (p1.dSmall + 300) / 4, rh5 = Rmean5 * 0.4;
-const layout5 = E.buildLayout({ ...p1, heartFrac: 0.4, dLarge: 300, pattern: "cant", cantWidth: 60 });
-const volCheck = r.boards.reduce((s, b, i) => {
-  const a = E.rectRadial(layout5[i].x1, layout5[i].x2, layout5[i].y1, layout5[i].y2, Rmean5, rh5).a;
-  return s + (b.volume - a * 1e-6 * p1.length);
-}, 0);
-eq("volume = rectRadial area x length (all boards)", volCheck, 0, 1e-9);
+const Rz5 = z => p1.dSmall / 2 + (300 / 2 - p1.dSmall / 2) * z / p1.length;
+let volErr = 0;
+for (const b of r.boards) {
+  const steps = 120, NREF = 80, dz = b.length / steps;
+  let ref = 0;
+  for (let k = 0; k < steps; k++) {
+    const z = b.zStart + (k + 0.5) * dz;
+    ref += E.rectInside(b.x1, b.x2, b.y1, b.y2, Rz5(z), NREF) * dz * 1e-6;
+  }
+  volErr = Math.max(volErr, Math.abs(b.volume - ref) / Math.max(ref, 1e-9));
+}
+if (volErr > 0.01) {
+  console.log("FAIL  board volume != independent taper integration (" + (100 * volErr).toFixed(2) + " %)"); fails++;
+} else console.log("PASS  board volumes match independent integration along the log (max err",
+  (100 * volErr).toFixed(3) + " %)");
 const dryCheck = r.boards.reduce((s, b) => s + b.dryMass + b.waterMass - b.greenWeight, 0);
 eq("mass conservation (dry+water==greenWeight)", dryCheck, 0, 1e-6);
 
@@ -136,30 +149,34 @@ if (rowThick > Math.min(pc.cantWidth, Math.SQRT2 * pc.dSmall / 2) + 0.01) {
   console.log("FAIL  cant rows exceed cant width:", rowThick); fails++;
 } else console.log("PASS  cant rows span", rowThick, "mm <= cant width");
 
-// 9b. core/side board thicknesses and wane side boards.
-//     Defaults: Ø220 + cant 155 = inscribed square -> previously no side
-//     boards at all; with wane allowed we must get side boards on both
-//     flanks and above/below the cant, sawn to the side thickness.
-const pDef = { dSmall: 220, dLarge: 250, length: 4.2, thickCore: 50, thickSide: 25,
-  kerf: 2.5, edgeTrim: 0, pattern: "cant", cantWidth: 155,
+// 9b. core/side board thicknesses, side-board width and wane trimming.
+//     Defaults (Ø220/250, cant 155 = inscribed square): 3 core rows plus 4
+//     side boards — above and below the cant and on both flanks — sawn to the
+//     side thickness, edged to the 125 mm side board width and cut back from
+//     the small end until the wane limits are met.
+const pDef = { ...sideDef, dSmall: 220, dLarge: 250, length: 4.2, thickCore: 50, thickSide: 25,
+  kerf: 2.5, pattern: "cant", cantWidth: 155,
   mcSap: 120, mcHeart: 40, rhoCore: 455, rhoPerimeter: 568, shrinkVol: 12, heartFrac: 0.45 };
 const dDef = E.compute(pDef).boards;
 const dCore = dDef.filter(b => b.isCant), dSide = dDef.filter(b => !b.isCant);
 const cwDef = Math.min(pDef.cantWidth, Math.SQRT2 * pDef.dSmall / 2);
-if (!(dCore.length >= 2 && dSide.length >= 4)) {
-  console.log("FAIL  expected core rows + wane side boards, got", dCore.length, "core,", dSide.length, "side"); fails++;
-} else console.log("PASS  Ø220/cant 155 yields", dCore.length, "core +", dSide.length, "side boards (wane)");
+if (!(dCore.length === 3 && dSide.length === 4)) {
+  console.log("FAIL  expected 3 core + 4 side boards, got", dCore.length, "core,", dSide.length, "side"); fails++;
+} else console.log("PASS  Ø220/cant 155 yields", dCore.length, "core +", dSide.length, "side boards");
 if (dCore.some(b => Math.abs(b.thickness - pDef.thickCore) > 0.01)) {
   console.log("FAIL  core board thickness != thickCore"); fails++;
 } else console.log("PASS  core boards sawn to core thickness", pDef.thickCore, "mm");
 if (dSide.some(b => Math.abs(b.thickness - pDef.thickSide) > 0.01)) {
   console.log("FAIL  side board thickness != thickSide"); fails++;
 } else console.log("PASS  side boards sawn to side thickness", pDef.thickSide, "mm");
-// edging rule: nothing sawn wider than the cant
-const overW = [...dCore, ...dSide].filter(b => b.width > cwDef + 0.01);
-if (overW.length) { console.log("FAIL  board wider than cant:", overW.map(b => b.label + " " + b.width)); fails++; }
-else console.log("PASS  no board wider than the cant (max width",
-  Math.max(...[...dCore, ...dSide].map(b => b.width)), "<= " + cwDef.toFixed(0) + " mm)");
+// side boards are edged to the side-board width and never wider than the cant;
+// core rows are limited by the cant itself
+const wCap9 = Math.min(pDef.sideWidth, cwDef);
+const overW = dSide.filter(b => b.width > wCap9 + 0.01).concat(dCore.filter(b => b.width > cwDef + 0.01));
+if (overW.length) { console.log("FAIL  board wider than the side width/cant:", overW.map(b => b.label + " " + b.width)); fails++; }
+else console.log("PASS  side boards within", wCap9.toFixed(0), "mm (side board width / cant) and core rows within",
+  cwDef.toFixed(0), "mm:",
+  [...dCore, ...dSide].map(b => b.label + " " + b.width).join(", "));
 // side boards must exist above AND below the cant, and on both flanks
 if (!(dSide.some(b => b.y1 >= cwDef / 2 - 1) && dSide.some(b => b.y2 <= -cwDef / 2 + 1))) {
   console.log("FAIL  missing side boards above/below the cant"); fails++;
@@ -169,17 +186,142 @@ const flank = dSide.filter(b => /Side [LR]/.test(b.label));
 if (!(flank.some(b => /Side R/.test(b.label)) && flank.some(b => /Side L/.test(b.label)))) {
   console.log("FAIL  missing flank side boards L/R"); fails++;
 } else console.log("PASS  flank side boards present:", flank.map(b => b.label).join(", "));
-// wane must be real: a side board corner outside the log circle but volume > 0
-const waneOk = dSide.some(b => b.volume > 0 &&
-  (Math.hypot(b.x1, b.y1) > pDef.dSmall / 2 + 0.5 || Math.hypot(b.x2, b.y2) > pDef.dSmall / 2 + 0.5));
-if (!waneOk) { console.log("FAIL  no wane detected in side boards"); fails++; }
-else console.log("PASS  wane allowed: side board volume clipped to the log (area still counted)");
+// core rows run the whole log; the wane-limited side boards are cut back
+if (dCore.some(b => b.trim !== "full" || Math.abs(b.length - pDef.length) > 1e-9)) {
+  console.log("FAIL  core rows must run the full log length"); fails++;
+} else console.log("PASS  core rows run the full log length");
+if (dSide.some(b => b.trim !== "cut")) {
+  console.log("FAIL  side boards should be cut back here:", dSide.map(b => b.label + " " + b.trim)); fails++;
+} else console.log("PASS  side boards cut back from the small end:",
+  dSide.map(b => b.label + " " + b.length.toFixed(2) + " of " + pDef.length + " m").join(", "));
+if (dSide.some(b => Math.abs(b.length - pDef.length) < 1e-9)) {
+  console.log("FAIL  wane-limited side boards must be shorter than the log"); fails++;
+} else console.log("PASS  wane-limited side boards are shorter than the log");
+// worst wane fractions of a board over the length it actually uses
+function worstWane(p, b) {
+  const Rz = z => p.dSmall / 2 + (((p.dLarge || p.dSmall) / 2) - p.dSmall / 2) * z / p.length;
+  const isV = b.orient === "v";
+  const t = isV ? b.x2 - b.x1 : b.y2 - b.y1, w = isV ? b.y2 - b.y1 : b.x2 - b.x1;
+  const dIn = isV ? Math.min(Math.abs(b.x1), Math.abs(b.x2)) : Math.min(Math.abs(b.y1), Math.abs(b.y2));
+  const dOut = isV ? Math.max(Math.abs(b.x1), Math.abs(b.x2)) : Math.max(Math.abs(b.y1), Math.abs(b.y2));
+  let fw = 0, ft = 0;
+  for (let k = 0; k < 400; k++) {
+    const z = b.zStart + (k + 0.5) * b.length / 400, R = Rz(z);
+    const C = Math.sqrt(Math.max(0, R * R - dOut * dOut));
+    const E2 = Math.sqrt(Math.max(0, R * R - (w / 2) * (w / 2)));
+    fw = Math.max(fw, (w - 2 * Math.min(w / 2, C)) / w);
+    ft = Math.max(ft, (dOut - Math.max(dIn, E2)) / t);
+  }
+  return { fw, ft };
+}
+let waneBad = 0;
+for (const b of dSide) {
+  const wn = worstWane(pDef, b);
+  if (wn.fw > pDef.waneWidthFrac + 1e-9 || wn.ft > pDef.waneThickFrac + 1e-9) {
+    console.log("FAIL  wane above the limits on", b.label, wn.fw.toFixed(3), wn.ft.toFixed(3)); waneBad++;
+  }
+}
+if (waneBad) fails += waneBad;
+else console.log("PASS  every side board stays within both wane limits over its own length (worst",
+  Math.max(...dSide.map(b => worstWane(pDef, b).fw)).toFixed(3), "width /",
+  Math.max(...dSide.map(b => worstWane(pDef, b).ft)).toFixed(3), "thickness)");
+// wane inside the limits is still real, and solid volume <= sawn volume
+if (!dSide.some(b => b.wanePct > 0)) {
+  console.log("FAIL  side boards should still contain wane inside the limits"); fails++;
+} else console.log("PASS  wane remains inside the limits (max",
+  Math.max(...dSide.map(b => b.wanePct)).toFixed(1) + " % of the width)");
+const sumSawn9 = dDef.reduce((s, b) => s + b.volumeSawn, 0);
+const sumSolid9 = dDef.reduce((s, b) => s + b.volume, 0);
+if (!(sumSolid9 <= sumSawn9 + 1e-12 && sumSawn9 > 0)) {
+  console.log("FAIL  solid volume must not exceed the sawn volume"); fails++;
+} else console.log("PASS  solid wood", (1000 * sumSolid9).toFixed(1), "L <= sawn lumber",
+  (1000 * sumSawn9).toFixed(1), "L");
+const logVol9 = Math.PI / 12 * pDef.length * (Math.pow(pDef.dSmall / 1000, 2) +
+  (pDef.dSmall / 1000) * (pDef.dLarge / 1000) + Math.pow(pDef.dLarge / 1000, 2));
+if (!(sumSawn9 < logVol9)) { console.log("FAIL  lumber volume exceeds the log volume"); fails++; }
+else console.log("PASS  recovery", (100 * sumSawn9 / logVol9).toFixed(0) + " % sawn /",
+  (100 * sumSolid9 / logVol9).toFixed(0) + "% solid (log", (1000 * logVol9).toFixed(1), "L)");
 
-// 9c. through-and-through uses the core thickness for every board
+// 9c. through-and-through: every board is treated as a side board (core board
+//     thickness, side-board width, wane limits).
 const tntC = E.compute({ ...pDef, pattern: "tnt", cantWidth: 0 }).boards;
 if (tntC.some(b => Math.abs(b.thickness - pDef.thickCore) > 0.01)) {
   console.log("FAIL  live-sawn board thickness != thickCore"); fails++;
 } else console.log("PASS  live sawing uses core thickness for all boards");
+if (tntC.some(b => b.width > pDef.sideWidth + 0.01)) {
+  console.log("FAIL  live-sawn board wider than the side board width"); fails++;
+} else console.log("PASS  live-sawn boards edged to the side board width (" +
+  tntC.map(b => b.width).join(", ") + " mm)");
+
+// 9d. cutting back to the wane limits, dropping, and the shortest-board rule.
+// A side board keeps its sawn width: if the part of the log that meets the
+// wane limits is shorter than the shortest allowed board, the board is not
+// produced at all instead of being edged down to a narrower board.
+const pCyl = { ...pDef, dLarge: 220 };              // cylinder: nothing to cut back
+const rCyl = E.compute(pCyl);
+const cylSide = rCyl.boards.filter(b => !b.isCant);
+if (cylSide.length || !rCyl.warnings.some(w => /Dropped/.test(w))) {
+  console.log("FAIL  a cylindrical log must drop its waney side boards, got",
+    cylSide.map(b => b.label + " " + b.width + " mm"), JSON.stringify(rCyl.warnings)); fails++;
+} else console.log("PASS  cylindrical log: waney side boards dropped, no narrow boards (" +
+  rCyl.warnings[0].slice(0, 74) + "…)");
+// a longer minimum length drops the boards rather than edging them narrower
+const pMin = { ...pDef, minBoardLen: 4000 };
+const rMin = E.compute(pMin);
+if (rMin.boards.some(b => !b.isCant) || !rMin.warnings.some(w => /Dropped/.test(w))) {
+  console.log("FAIL  a 4 m minimum length should drop the cut-back boards",
+    rMin.boards.filter(b => !b.isCant).map(b => b.label + " " + b.width)); fails++;
+} else console.log("PASS  a 4 m minimum length drops the cut-back boards instead of edging them");
+// every produced side board meets the shortest allowed length
+if (!dSide.every(b => b.length >= pDef.minBoardLen / 1000 - 1e-9)) {
+  console.log("FAIL  produced side boards must meet the minimum length:", dSide.map(b => b.length)); fails++;
+} else console.log("PASS  produced side boards meet the minimum length (" +
+  dSide.map(b => b.length.toFixed(2) + " m").join(", ") + ")");
+// the reported case: Ø210/250, cant 155 clamped to 148 mm, side board 150 mm.
+// The flanks at that width would only reach 2.2 m, so they are dropped and no
+// narrow (edged) board appears anywhere.
+const pEx = { ...sideDef, dSmall: 210, dLarge: 250, length: 4.2, thickCore: 50, thickSide: 25,
+  kerf: 2.5, pattern: "cant", cantWidth: 155, sideWidth: 150,
+  mcSap: 140, mcHeart: 40, rhoCore: 400, rhoPerimeter: 460, shrinkVol: 12, heartFrac: 0.6 };
+const rEx = E.compute(pEx);
+const exFlank = rEx.boards.filter(b => /Side [LR]/.test(b.label));
+if (exFlank.length) {
+  console.log("FAIL  Ø210 with a 150 mm side board should drop the flank boards, got",
+    exFlank.map(b => b.label + " " + b.width + " mm " + b.length.toFixed(2) + " m")); fails++;
+} else console.log("PASS  Ø210 + 150 mm side board: flanks dropped (" +
+  (rEx.warnings.join(" ").match(/Side R1 \([^)]*\)/) || ["reason"])[0] + ")");
+if (rEx.boards.some(b => !b.isCant && b.trim === "edged")) {
+  console.log("FAIL  no side board may be edged narrower to save length");
+  fails++;
+} else console.log("PASS  no board was edged narrower to save length — widths are the sawn product width, " +
+  "capped only by the log/cant:", rEx.boards.filter(b => !b.isCant)
+    .map(b => b.label + " " + b.width + " mm").join(", "));
+// the same log with the 125 mm product width does produce the flanks, cut back
+const pEx125 = { ...pEx, sideWidth: 125 };
+const ex125 = E.compute(pEx125).boards.filter(b => /Side [LR]/.test(b.label));
+if (!(ex125.length === 2 && ex125.every(b => Math.abs(b.width - 125) < 0.01 &&
+  b.trim === "cut" && b.length >= 2.5 - 1e-9))) {
+  console.log("FAIL  Ø210 + 125 mm side board should give 125 mm flank boards >= 2.5 m, got",
+    ex125.map(b => b.label + " " + b.width + " mm " + b.length.toFixed(2) + " m " + b.trim)); fails++;
+} else console.log("PASS  Ø210 + 125 mm side board produces the flanks at 125 mm, cut to",
+  ex125.map(b => b.length.toFixed(2) + " m").join(" / "));
+// no produced board may be shorter than the shortest allowed length
+const shortBad = [];
+for (const pc of [pDef, pEx, pEx125, pCyl, pMin, { ...pDef, dSmall: 400, dLarge: 460, cantWidth: 250 }]) {
+  for (const b of E.compute(pc).boards) {
+    if (b.length < Math.min(pc.minBoardLen / 1000, pc.length) - 1e-9) shortBad.push("Ø" + pc.dSmall + " " + b.label);
+  }
+}
+if (shortBad.length) { console.log("FAIL  boards shorter than allowed:", shortBad.join(", ")); fails++; }
+else console.log("PASS  no produced board is shorter than the shortest allowed length");
+// tighter wane limits can only reduce the solid volume
+const volOf = w => E.compute({ ...pDef, waneWidthFrac: w, waneThickFrac: 1 })
+  .boards.reduce((s, b) => s + b.volume, 0);
+if (!(volOf(0.1) <= volOf(0.33) + 1e-12 && volOf(0.33) <= volOf(0.9) + 1e-12)) {
+  console.log("FAIL  tighter wane limits must not raise the volume:", volOf(0.1), volOf(0.33), volOf(0.9)); fails++;
+} else console.log("PASS  volume falls as the wane limits tighten (",
+  (1000 * volOf(0.1)).toFixed(1), "<=", (1000 * volOf(0.33)).toFixed(1), "<=",
+  (1000 * volOf(0.9)).toFixed(1), "L)");
 
 // 10. heartwood fraction sampling: deterministic, in range, correct moments
 const s1 = E.sampleHeartFrac(0.3, 0.7, 1000, 42);
@@ -198,7 +340,7 @@ eq("sample sd ~ (max-min)/4", mSd, 0.1, 0.02);
 // 11. distribution build sanity: MC of a pure-heartwood board independent of frac?
 // cant rows near pith keep heart% ~ constant; bark-side boards lose sapwood as
 // frac grows -> their MC must DECREASE with increasing heartFrac.
-const pd = { dSmall: 400, dLarge: 400, length: 4, thickCore: 50, thickSide: 50, kerf: 3, edgeTrim: 10,
+const pd = { dSmall: 400, dLarge: 400, length: 4, thickCore: 50, thickSide: 50, kerf: 3,
   pattern: "tnt", cantWidth: 0, mcSap: 120, mcHeart: 55, rhoCore: 400, rhoPerimeter: 400, shrinkVol: 0,
   heartFracMin: 0.4, heartFracMax: 0.9 };
 // top board spans y=[134,184] mm; rh=0.4*200=80 -> pure sapwood (MC 120),
@@ -234,7 +376,7 @@ eq("full-disc mean density of linear gradient", 300 + (500 - 300) * (g.rs / g.a)
 // compute() wiring: independent numeric integration over the top band
 // [-100,100] of a 400 mm log, rho(r)=300+200r/200
 const band = E.compute({ ...pGrad, heartFrac: 0.0, dSmall: 400, dLarge: 400,
-  thickCore: 200, thickSide: 200, kerf: 0, edgeTrim: 0, length: 1 });
+  thickCore: 200, thickSide: 200, kerf: 0, length: 1 });
 let iArea = 0, iRho = 0;
 const NQ = 400;
 for (let iy = 0; iy < NQ; iy++) {

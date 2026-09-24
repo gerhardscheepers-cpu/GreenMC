@@ -65,7 +65,9 @@ chk("load: default log/board inputs exactly as specified",
   elems["dSmall"].value === "220" && elems["dLarge"].value === "250" &&
   elems["length"].value === "4.2" && elems["pattern"].value === "cant" &&
   elems["thickCore"].value === "50" && elems["thickSide"].value === "25" && elems["kerf"].value === "2.5" &&
-  elems["edgeTrim"].value === "0" && elems["cantWidth"].value === "155");
+  elems["cantWidth"].value === "155" && elems["sideWidth"].value === "125" &&
+  elems["minBoardLen"].value === "2500" && elems["waneWidthFrac"].value === "0.33" &&
+  elems["waneThickFrac"].value === "0.5");
 chk("load: species select defaulted to a library entry", !!E.SPECIES[elems["species"].value]);
 chk("load: results table rendered automatically", /<table/.test(tbl()) && !/Enter inputs/.test(tbl()));
 chk("load: no validation warning", !/check the highlighted/.test(tbl()));
@@ -81,7 +83,8 @@ console.log("  (defaults 220/250 mm · 4.2 m · 50 mm core / 25 mm side · kerf 
   loadBoards + " items, " + (tbl().match(/<tr>/g) || []).length + " table rows)");
 
 const p = { species: "Scots pine", dSmall: 400, dLarge: 460, length: 4.8,
-  thickCore: 50, thickSide: 25, kerf: 3.4, edgeTrim: 10, pattern: "cant", cantWidth: 240,
+  thickCore: 50, thickSide: 25, kerf: 3.4, pattern: "cant", cantWidth: 240,
+  sideWidth: 125, minBoardLen: 2500, waneWidthFrac: 0.33, waneThickFrac: 0.5,
   mcSap: 120, mcHeart: 55, rhoMin: 380, rhoMax: 440, shrinkVol: 12,
   heartFracMin: 0.35, heartFracMax: 0.55 };
 // run the Monte-Carlo + full render via the UI layer (20 runs for speed)
@@ -155,20 +158,89 @@ const cantIn = Math.hypot(cant.x2, cant.y2) <= Rsmall + 0.01;
 console.log("cant fully inside log circle:", cantIn);
 console.log("cant present:", !!cant, "| warnings:", r.warnings.length);
 
-// edging rule: no side board may be wider than the cant width
+// edging rule: no side board may be wider than the side board width or the cant
 const cwUsed = Math.min(p.cantWidth, Math.SQRT2 * Rsmall);
-const tooWide = r.boards.filter(b => b.orient === "h" && !b.isCant && (b.x2 - b.x1) > cwUsed + 1e-9);
-chk("no side board wider than the cant (" + cwUsed.toFixed(0) + " mm)",
+const wCap = Math.min(cwUsed, p.sideWidth);
+const tooWide = r.boards.filter(b => !b.isCant && b.orient === "h" && (b.x2 - b.x1) > wCap + 1e-9);
+chk("no side board wider than the side width/cant (" + wCap.toFixed(0) + " mm)",
   tooWide.length === 0);
+const tooWideV = r.boards.filter(b => b.orient === "v" && (b.y2 - b.y1) > wCap + 1e-9);
+chk("no flank board wider than the side board width", tooWideV.length === 0);
 // side boards must be sawn to the side-board thickness
 const sideH = r.boards.filter(b => b.orient === "h" && !b.isCant);
 chk("side boards sawn to side-board thickness", sideH.every(b => Math.abs(b.thickness - p.thickSide) < 0.01));
 // wane is expected in live sawing: bark-side boards reach past the circle
+// wane is expected in live sawing: with no width cap the bark-side boards
+// reach past the circle and are kept (their corners outside the log)
 const tnt = vm.runInContext("JSON.stringify(ENGINE.compute(" +
-  JSON.stringify({ ...p, pattern: "tnt", cantWidth: 0 }) + ").boards)", ctx);
+  JSON.stringify({ ...p, sideWidth: 10000, waneWidthFrac: 1, waneThickFrac: 1, pattern: "tnt", cantWidth: 0 }) +
+  ").boards)", ctx);
 const tntBoards = JSON.parse(tnt);
-const wane = tntBoards.some(b => Math.hypot(b.x2, b.y1) > Rsmall + 0.5);
-chk("wane allowed (bark-side corners outside log circle, live sawing)", wane);
+const wane = tntBoards.some(b => b.volume > 0 && Math.hypot(b.x2, b.y1) > Rsmall + 0.5);
+chk("wane is allowed (bark-side corners outside log circle, live sawing)", wane);
+
+// ---------- wane trimming, end to end ----------
+// recompute the wane fractions of a board over the length it really uses
+function waneFracs(pp, b) {
+  const Rz = z => pp.dSmall / 2 + ((pp.dLarge / 2) - pp.dSmall / 2) * z / pp.length;
+  const isV = b.orient === "v";
+  const t = isV ? b.x2 - b.x1 : b.y2 - b.y1, w = isV ? b.y2 - b.y1 : b.x2 - b.x1;
+  const dIn = isV ? Math.min(Math.abs(b.x1), Math.abs(b.x2)) : Math.min(Math.abs(b.y1), Math.abs(b.y2));
+  const dOut = isV ? Math.max(Math.abs(b.x1), Math.abs(b.x2)) : Math.max(Math.abs(b.y1), Math.abs(b.y2));
+  let fw = 0, ft = 0;
+  for (let k = 0; k < 300; k++) {
+    const z = b.zStart + (k + 0.5) * b.length / 300, R = Rz(z);
+    const C = Math.sqrt(Math.max(0, R * R - dOut * dOut));
+    const E2 = Math.sqrt(Math.max(0, R * R - (w / 2) * (w / 2)));
+    fw = Math.max(fw, (w - 2 * Math.min(w / 2, C)) / w);
+    ft = Math.max(ft, (dOut - Math.max(dIn, E2)) / t);
+  }
+  return { fw, ft };
+}
+let waneViol = [], shortViol = [];
+for (const b of r.boards) {
+  if (!b.isCant) {
+    const { fw, ft } = waneFracs(p, b);
+    if (fw > p.waneWidthFrac + 1e-9 || ft > p.waneThickFrac + 1e-9) waneViol.push(b.label);
+  }
+  if (b.length < Math.min(p.minBoardLen / 1000, p.length) - 1e-9) shortViol.push(b.label);
+}
+chk("every produced board is inside both wane limits" +
+  (waneViol.length ? " (violations: " + waneViol.join(", ") + ")" : ""), waneViol.length === 0);
+chk("no produced board is shorter than the shortest allowed length", shortViol.length === 0);
+chk("core boards run the full log length",
+  r.boards.filter(b => b.isCant).every(b => Math.abs(b.length - p.length) < 1e-9));
+chk("board table reports the wane trim", /Wane trim/.test(tbl()) && /(cut to|edged to|full length)/.test(tbl()));
+chk("board table reports solid wood and recovery", /Solid wood/.test(tbl()) && /Recovery/.test(tbl()));
+chk("cross-section explains the wane trimming", /wane is trimmed/i.test(elems["cross"].innerHTML));
+
+// a cylindrical log has nothing to cut back, so its waney side boards are
+// dropped entirely instead of being edged down to a narrow board
+const pCyl = { ...p, dSmall: 220, dLarge: 220, kerf: 2.5, cantWidth: 155 };
+vm.runInContext(`
+  LAST = { p: ${JSON.stringify(pCyl)}, ...buildDistribution(${JSON.stringify(pCyl)}, 20) };
+  LAST.sel = LAST.perBoard.map(() => true);
+  renderAll();
+`, ctx);
+const cylBoards = vm.runInContext("LAST.base.boards", ctx);
+const cylSide = cylBoards.filter(b => !b.isCant);
+chk("cylindrical log: waney side boards dropped (no narrow boards)",
+  cylSide.length === 0 && cylBoards.length > 0 && /Dropped \d+ side board/.test(tbl()));
+chk("cylindrical log: core rows still run the full log length",
+  cylBoards.filter(b => b.isCant).every(b => Math.abs(b.length - pCyl.length) < 1e-9));
+// dropped boards must surface as a visible warning (Ø265 + cant 155 leaves a
+// flank board with its outer face on the bark: it cannot be edged to anything
+// usable, so it is dropped rather than silently shrunk)
+const pDrop = { ...p, dSmall: 265, dLarge: 265, length: 4.2, thickCore: 50, thickSide: 25,
+  kerf: 2.5, cantWidth: 155, sideWidth: 125, minBoardLen: 2500,
+  waneWidthFrac: 0.33, waneThickFrac: 0.5 };
+vm.runInContext(`
+  LAST = { p: ${JSON.stringify(pDrop)}, ...buildDistribution(${JSON.stringify(pDrop)}, 20) };
+  LAST.sel = LAST.perBoard.map(() => true);
+  renderAll();
+`, ctx);
+chk("dropped side boards surface as a warning in the page", /Dropped \d+ side board/.test(tbl()));
+chk("no NaN after the cylindrical / dropping runs", !/NaN/.test(tbl()) && !/NaN/.test(elems["cross"].innerHTML));
 
 // ---------- summary ----------
 console.log(fails === 0 ? "\nALL UI CHECKS PASSED" : "\n" + fails + " UI CHECK(S) FAILED");
