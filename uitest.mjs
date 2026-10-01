@@ -179,6 +179,75 @@ const tntBoards = JSON.parse(tnt);
 const wane = tntBoards.some(b => b.volume > 0 && Math.hypot(b.x2, b.y1) > Rsmall + 0.5);
 chk("wane is allowed (bark-side corners outside log circle, live sawing)", wane);
 
+// ---------- live sawing shows only the inputs it uses ----------
+// The pattern select drives which field groups are shown, the labels and the
+// help text. addEventListener is a no-op in the DOM stub, so the two calls the
+// change handler makes are made explicitly here.
+const hidden = (id, want) => elems[id].classList.contains("hide") === want;
+const lens = () => vm.runInContext("LAST.base.boards.map(b => b.length)", ctx);
+const anyCant = () => vm.runInContext("LAST.base.boards.some(b => b.isCant)", ctx);
+chk("cant pattern: side board thickness and cant width are shown",
+  hidden("fThickSide", false) && hidden("fCantWidth", false));
+chk("cant pattern: core/side board labels and the cant help text",
+  elems["lblThickCore"].textContent === "Core board thickness (mm)" &&
+  elems["h2Side"].textContent === "Side board" && elems["patternHint"].textContent.length > 20 &&
+  hidden("noteCant", false) && hidden("noteTnt", true));
+
+elems["pattern"].value = "tnt";                 // what the select's change event does
+vm.runInContext("applyPattern(); run();", ctx);
+chk("live sawing: side board thickness and cant width are hidden",
+  hidden("fThickSide", true) && hidden("fCantWidth", true) && hidden("rowThick", false));
+chk("live sawing: the inputs it uses are relabelled",
+  elems["lblThickCore"].textContent === "Board thickness (mm)" &&
+  elems["lblSideWidth"].textContent === "Board width (mm)" &&
+  elems["h2Side"].textContent === "Boards and wane" &&
+  elems["patternHint"].textContent.length > 20);
+chk("live sawing: the live-sawing help text replaces the cant one",
+  hidden("noteCant", true) && hidden("noteTnt", false) &&
+  /Board naming: live sawing cuts no cant/.test(tbl()) &&
+  !/resawn from the cant/.test(tbl()));
+chk("live sawing: the parallel boards are numbered Board 1..n",
+  LAST_base().boards.length > 0 &&
+  LAST_base().boards.every(b => /^Board \d+$/.test(b.label)) &&
+  /<b>Board 1…n<\/b> \(tag B\)/.test(tbl()) &&
+  vm.runInContext("LAST.base.boards.every(b => /^B\\d$/.test(shortTag(b)))", ctx));
+chk("live sawing: parallel boards only, no cant rows",
+  /<table/.test(tbl()) && !anyCant() && !/check the highlighted/.test(tbl()));
+chk("the table has no width-solid column and the notes do not mention it",
+  !/Width solid/.test(tbl()) && !/wane-free width/.test(tbl()) &&
+  (tbl().match(/<th>/g) || []).length === 9);
+
+// the wane limits and the shortest board length must still bite in live
+// sawing: a 200 mm board does not fit a Ø220/250 mm log, so the two outer
+// boards have to be cut back to meet the wane limits
+elems["sideWidth"].value = "200";
+vm.runInContext("run()", ctx);
+const withLimits = lens();                      // default limits 0.33 / 0.5
+elems["waneWidthFrac"].value = "1"; elems["waneThickFrac"].value = "1";
+vm.runInContext("run()", ctx);
+const waneFree = lens();
+chk("live sawing: the wane limits are still applied",
+  waneFree.length > 0 && waneFree.every(l => l === 4.2) && withLimits.some(l => l < 4.19));
+elems["waneWidthFrac"].value = "0.33"; elems["waneThickFrac"].value = "0.5";
+elems["minBoardLen"].value = "4000";             // more than the wane cut-back leaves
+vm.runInContext("run()", ctx);
+chk("live sawing: the shortest board length is still applied",
+  /Dropped \d+ (side )?board\(s\)|No boards fit/.test(tbl()));
+elems["minBoardLen"].value = "2500"; elems["sideWidth"].value = "125";
+elems["thickSide"].value = ""; elems["cantWidth"].value = "";   // hidden fields: empty
+vm.runInContext("run()", ctx);
+chk("live sawing: the hidden fields are not validated",
+  !/check the highlighted/.test(tbl()) && !elems["thickSide"].classList.contains("bad") &&
+  !elems["cantWidth"].classList.contains("bad") && !/NaN/.test(tbl()));
+elems["thickSide"].value = "25"; elems["cantWidth"].value = "155";
+elems["pattern"].value = "cant";                 // back again: nothing lost
+vm.runInContext("applyPattern(); run();", ctx);
+chk("switching back restores the cant fields, labels and values",
+  hidden("fThickSide", false) && hidden("fCantWidth", false) && hidden("noteTnt", true) &&
+  hidden("noteCant", false) && elems["lblThickCore"].textContent === "Core board thickness (mm)" &&
+  elems["thickSide"].value === "25" && elems["cantWidth"].value === "155" &&
+  /<table/.test(tbl()) && !/check the highlighted/.test(tbl()));
+
 // ---------- wane trimming, end to end ----------
 // recompute the wane fractions of a board over the length it really uses
 function waneFracs(pp, b) {

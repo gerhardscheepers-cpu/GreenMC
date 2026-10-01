@@ -15,6 +15,14 @@ density** of lumber before or after sawing, from:
 - species properties: sapwood/heartwood green MC, species minimum/maximum
   oven-dry density, heartwood diameter range, volumetric shrinkage.
 
+The form shows **only the inputs the selected pattern actually uses**. Live sawing has
+no cant and no separate side board thickness, so those fields are hidden and the
+thickness field is relabelled to **board thickness** (default 50 mm) and the width field
+to **board width** (default 125 mm). The **shortest board length** and the two **wane
+limits** apply to both patterns. Switching pattern relabels the fields, swaps the
+pattern-specific help text and recalculates at once; hidden fields keep their value, so
+switching back and forth loses nothing.
+
 ## Usage
 
 Open `index.html` in any browser and press **Calculate**. Everything runs locally
@@ -29,9 +37,10 @@ For online use, the app is served by GitHub Pages at:
 ## Model
 
 1. **Layout** — a symmetric board layout is generated on the log cross-section
-   (small end). Through-and-through centres boards of the core thickness on the
-   pith. The cant pattern resaws the cant into **core boards** (core thickness,
-   labelled `Core 1…n`) and adds **side boards**:
+   (small end). Through-and-through cuts no cant: it centres boards of the core
+   thickness on the pith and numbers its parallel boards `Board 1…n`. The cant
+   pattern numbers the boards resawn from the cant `Core 1…n` (core thickness) and
+   adds **side boards**:
    - the boards above and below the cant (`Side 1…n`), and
    - the boards on both flanks (`Side R1`, `Side L1`).
 
@@ -71,9 +80,9 @@ For online use, the app is served by GitHub Pages at:
    linear radial density profile ρ(r) = ρ_core + (ρ_perimeter − ρ_core)·r/R, and
    the heartwood-area fraction gives the dry-mass-weighted MC
    MC = (m_water / m_dry) · 100.
-5. **Outputs** — per-board table (thickness, **width sawn**, **width solid**,
-   **length**, how wane was trimmed, heartwood/sapwood %, MC avg with min–max,
-   oven-dry density avg with SD), totals for **lumber volume** (boards as sawn),
+5. **Outputs** — per-board table (thickness, **width sawn**, **length**, how wane was
+   trimmed, heartwood/sapwood %, MC avg with min–max, oven-dry density avg with SD),
+   totals for **lumber volume** (boards as sawn),
    **solid wood** and log volume with the **recovery %**, a cross-section drawing
    at mid-length showing board placement and the Hmin/Hmax heartwood circles, and
    two histograms (moisture content and oven-dry density) that pool the values of

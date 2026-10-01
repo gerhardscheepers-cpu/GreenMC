@@ -97,6 +97,17 @@
       flex: 1;
     }
 
+    /* a field group the selected sawing pattern does not use (live sawing has
+       no cant and no separate side board thickness) */
+    .hide {
+      display: none;
+    }
+
+    /* when only one field of a row is shown, let it use the whole row */
+    .row.one>div {
+      flex: 2;
+    }
+
     button {
       margin-top: 12px;
       width: 100%;
@@ -204,18 +215,22 @@
         <option value="tnt">Through-and-through (live sawing)</option>
         <option value="cant" selected>Cant + side boards</option>
       </select>
-      <div class="row">
-        <div><label>Core board thickness (mm)</label><input type="text" inputmode="decimal" id="thickCore" step="1"
-            value="50"></div>
-        <div><label>Side board thickness (mm)</label><input type="text" inputmode="decimal" id="thickSide" step="1"
-            value="25"></div>
+      <p class="note" id="patternHint"></p>
+      <div class="row" id="rowThick">
+        <div id="fThickCore"><label id="lblThickCore">Core board thickness (mm)</label><input type="text"
+            inputmode="decimal" id="thickCore" step="1" value="50"></div>
+        <div id="fThickSide"><label>Side board thickness (mm)</label><input type="text" inputmode="decimal"
+            id="thickSide" step="1" value="25"></div>
       </div>
       <label>Kerf (mm)</label><input type="text" inputmode="decimal" id="kerf" step="0.1" value="2.5">
-      <label>Cant width (mm — fixed width, cut as tall as the log allows; 0 = none)</label>
-      <input type="text" inputmode="decimal" id="cantWidth" step="5" value="155">
-      <h2 style="margin-top:14px">Side board</h2>
+      <div id="fCantWidth">
+        <label>Cant width (mm — fixed width, cut as tall as the log allows; 0 = none)</label>
+        <input type="text" inputmode="decimal" id="cantWidth" step="5" value="155">
+      </div>
+      <h2 style="margin-top:14px" id="h2Side">Side board</h2>
       <div class="row">
-        <div><label>Board width (mm)</label><input type="text" inputmode="decimal" id="sideWidth" step="5" value="125">
+        <div><label id="lblSideWidth">Board width (mm)</label><input type="text" inputmode="decimal" id="sideWidth"
+            step="5" value="125">
         </div>
         <div><label>Shortest board length (mm)</label><input type="text" inputmode="decimal" id="minBoardLen" step="50"
             value="2500"></div>
@@ -229,31 +244,30 @@
       <button id="calc">Calculate</button>
       <button id="csv" class="secondary">Export CSV</button>
       <button id="print" class="secondary">Print / PDF</button>
-      <p class="note">Sawing model: the cant takes the middle of the log and is resawn into core boards of the core board
-        thickness. The cant keeps the width you type — it is cut as tall as the log allows, so the number of core
-        boards grows with the log diameter instead of being limited by that width (a width so wide that not even one
-        core board would fit is clamped, with a warning). The boards above
-        and
-        below the cant and the boards on both flanks are side boards, sawn to the side board thickness and edged to the
-        side
-        board width (never wider than the cant). Wane — wood missing at a board corner because the board reaches past
-        the log —
-        is trimmed: each side board is cut back from the small end towards the large end until both wane limits are met.
-        A side
-        board is produced only if what is left is at least the shortest allowed board length; otherwise it is dropped
-        (side
-        boards are never edged down to a narrower width). Wane inside the limits is
-        not counted as wood: volumes, masses, moisture content and density all refer to solid (wane-free) wood.
-        Through-and-through sawing treats every board as a side board and uses the core board thickness.
-        Assumptions: circular cross-section; linear taper, board widths limited by the small end; no within-zone MC
-        gradient.
-        The density inputs give
-        the SPECIES minimum and maximum oven-dry density (oven-dry mass / oven-dry volume); within each log the radial
-        density range is 0.7 × the species range, placed randomly inside the species range for every log, so all
-        densities stay within the species bounds. Heartwood and sapwood MC vary between logs with SD = 5 % of the given
-        values. The heartwood fraction is sampled 1000 times (one sample per simulated log) from a normal distribution
-        centred on (min + max)/2 with SD
-        = (max − min)/4, kept within [min, max]; sampling is seeded and therefore reproducible. Expected accuracy
+      <p class="note" id="noteCant">Sawing model: the cant takes the middle of the log and is resawn into core boards of the core
+        board thickness. The cant keeps the width you type — it is cut as tall as the log allows, so the number of core boards grows with the log diameter instead of being limited by that width (a width so wide
+        that not even one core board would fit is clamped, with a warning). The boards above and below the cant and
+        the boards on both flanks are side boards, sawn to the side board thickness and edged to the side board width
+        (never wider than the cant). Wane — wood missing at a board corner because the board reaches past the log —
+        is trimmed: each side board is cut back from the small end towards the large end until both wane limits are
+        met. A side board is produced only if what is left is at least the shortest allowed board length; otherwise it
+        is dropped (side boards are never edged down to a narrower width). Wane inside the limits is not counted as
+        wood: volumes, masses, moisture content and density all refer to solid (wane-free) wood.</p>
+      <p class="note hide" id="noteTnt">Sawing model: live (through-and-through) sawing cuts the log straight into
+        parallel boards of the board thickness, from the top bark side across the pith to the bottom bark side. Every
+        board is edged to the board width (never wider than the small-end chord). Wane — wood missing at a board corner
+        because the board reaches past the log — is trimmed: each board is cut back from the small end towards the
+        large end until both wane limits are met. A board is produced only if what is left is at least the shortest
+        allowed board length; otherwise it is dropped (boards are never edged down to a narrower width). Wane inside
+        the limits is not counted as wood: volumes, masses, moisture content and density all refer to solid
+        (wane-free) wood.</p>
+      <p class="note" id="noteShared">Assumptions: circular cross-section; linear taper, board widths limited by the
+        small end; no within-zone MC gradient. The density inputs give the SPECIES minimum and maximum oven-dry
+        density (oven-dry mass / oven-dry volume); within each log the radial density range is 0.7 × the species
+        range, placed randomly inside the species range for every log, so all densities stay within the species
+        bounds. Heartwood and sapwood MC vary between logs with SD = 5 % of the given values. The heartwood fraction
+        is sampled 1000 times (one sample per simulated log) from a normal distribution centred on (min + max)/2 with
+        SD = (max − min)/4, kept within [min, max]; sampling is seeded and therefore reproducible. Expected accuracy
         roughly ±10–15 % on MC — for charge planning and logistics, not payment grading. Calibrate species values
         against your own mill measurements. Numeric inputs accept both "." and "," as decimal separator.</p>
     </section>
@@ -551,9 +565,14 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
             take(b, { zStart: 0, zEnd: L, trim: "full" });
             continue;
           }
-          b.label = "Side " + (++nb);
+          // live sawing has no cant and no flanks, so its parallel boards are
+          // just "Board 1..n"; the cant pattern calls them side boards
+          b.label = (p.pattern === "cant" ? "Side " : "Board ") + (++nb);
           const wTarget = Math.min(2 * chordHalf(yIn), b.wCap || Infinity, sw);
-          if (!(wTarget >= Math.max(tS, 1))) continue;      // no usable width
+          // a board narrower than it is thick cannot be produced at all; the
+          // board's own thickness is the yardstick, so live sawing (where
+          // thickSide does not exist) only ever needs its own board thickness
+          if (!(wTarget >= Math.max(t, 1))) continue;      // no usable width
           const plan = planSideBoard(R, Rl, L, wTarget, yIn, yOut, t, fWm, fTm, minLen);
           if (plan.trim === "drop") { dropped.push({ label: b.label, w: plan.w, len: plan.len }); continue; }
           b.x1 = -plan.w / 2; b.x2 = plan.w / 2;
@@ -565,7 +584,7 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
           const t = b.x2 - b.x1;
           b.label = (b.x1 >= 0 ? "Side R" + (++nr) : "Side L" + (++nl));
           const wTarget = Math.min(2 * chordHalf(xIn), b.wCap || Infinity, sw);
-          if (!(wTarget >= Math.max(tS, 1))) continue;      // no usable width
+          if (!(wTarget >= Math.max(t, 1))) continue;      // no usable width
           const plan = planSideBoard(R, Rl, L, wTarget, xIn, xOut, t, fWm, fTm, minLen);
           if (plan.trim === "drop") { dropped.push({ label: b.label, w: plan.w, len: plan.len }); continue; }
           b.y1 = -plan.w / 2; b.y2 = plan.w / 2;
@@ -574,13 +593,17 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
         out.warnings = warnings;
         out.cantWidth = +cw.toFixed(1);     // actual cant width sawn (0 if live sawing)
         if (dropped.length) {
+          // the boards the cant pattern calls side boards are just boards when
+          // live sawing, so the warning has to use the same word
+          const sb = p.pattern === "cant" ? "side board" : "board";
           const list = dropped.map(d => d.len > 0
             ? d.label + " (" + d.w.toFixed(0) + " mm wide gives " + d.len.toFixed(2) + " m)"
             : d.label + " (" + d.w.toFixed(0) + " mm wide never meets the wane limits)");
-          warnings.push("Dropped " + dropped.length + " side board(s): " + list.join("; ") +
-            ". A side board is only produced if the part of the log that meets the wane limits is at least " +
-            (1000 * minLen).toFixed(0) + " mm long — side boards are not edged down to a narrower width. " +
-            "Use a narrower side board width, allow more wane, or a longer / more tapered log.");
+          warnings.push("Dropped " + dropped.length + " " + sb + "(s): " + list.join("; ") +
+            ". A " + sb + " is only produced if the part of the log that meets the wane limits is at least " +
+            (1000 * minLen).toFixed(0) + " mm long — " + sb + "s are not edged down to a narrower width. " +
+            "Use a narrower " + (p.pattern === "cant" ? "side board " : "") +
+            "width, allow more wane, or a longer / more tapered log.");
         }
         return out;
       }
@@ -761,6 +784,47 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
     };
     let LAST = null;
 
+    // The two sawing patterns do not use the same inputs. Live sawing has no
+    // cant and no separate side board thickness, so those field groups are
+    // hidden, the shared ones are relabelled and the pattern-specific help text
+    // is swapped. Hidden values are kept, not reset, so switching back and
+    // forth never loses what was typed.
+    const PATTERN_UI = {
+      cant: {
+        hide: [],                                   // field groups / notes to hide
+        lblThickCore: "Core board thickness (mm)",
+        lblSideWidth: "Board width (mm)",
+        h2Side: "Side board",
+        hint: "The log is cut into a central cant (resawn into core boards), boards above and below it and boards on both flanks (side boards).",
+        note: "noteCant"
+      },
+      tnt: {
+        hide: ["fThickSide", "fCantWidth", "noteCant"],
+        lblThickCore: "Board thickness (mm)",
+        lblSideWidth: "Board width (mm)",
+        h2Side: "Boards and wane",
+        hint: "The log is cut straight into parallel boards of the board thickness, each edged to the board width. The wane limits and the shortest board length apply here too.",
+        note: "noteTnt"
+      }
+    };
+    // noteShared is never hidden; each other note is shown by exactly one pattern
+    const show = (id, on) => on ? $(id).classList.remove("hide") : $(id).classList.add("hide");
+
+    function applyPattern() {
+      const cfg = PATTERN_UI[$("pattern").value] || PATTERN_UI.cant;
+      show("fThickSide", !cfg.hide.includes("fThickSide"));
+      show("fCantWidth", !cfg.hide.includes("fCantWidth"));
+      show("noteCant", cfg.note === "noteCant");
+      show("noteTnt", cfg.note === "noteTnt");
+      // a lone field in the thickness row then takes the whole row
+      if (cfg.hide.includes("fThickSide")) $("rowThick").classList.add("one");
+      else $("rowThick").classList.remove("one");
+      $("lblThickCore").textContent = cfg.lblThickCore;
+      $("lblSideWidth").textContent = cfg.lblSideWidth;
+      $("h2Side").textContent = cfg.h2Side;
+      $("patternHint").textContent = cfg.hint;
+    }
+
     // populate species dropdown + defaults
     (function init() {
       const sel = $("species");
@@ -773,6 +837,9 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
       $("calc").addEventListener("click", run);
       $("csv").addEventListener("click", exportCsv);
       $("print").addEventListener("click", () => window.print());
+      // a new pattern means new fields and new labels, so recalculate at once
+      $("pattern").addEventListener("change", () => { applyPattern(); run(); });
+      applyPattern();
       run();   // show results immediately with the built-in defaults
     })();
 
@@ -845,12 +912,17 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
     function run() {
       const p = readParams();
       if (!isFinite(p.dLarge)) p.dLarge = p.dSmall;   // blank = same as small end
+      const isCant = p.pattern === "cant";
       // validate every numeric field; highlight the ones that are missing
-      // or unparseable (e.g. wrong decimal character)
+      // or unparseable (e.g. wrong decimal character). The side board
+      // thickness and the cant width do not exist for live sawing, so they are
+      // neither checked nor highlighted there.
       const checks = [
         ["dSmall", v => v > 0], ["dLarge", v => v >= 0], ["length", v => v > 0],
-        ["thickCore", v => v > 0], ["thickSide", v => v > 0], ["kerf", v => v >= 0],
-        ["cantWidth", v => v >= 0], ["sideWidth", v => v > 0], ["minBoardLen", v => v >= 0],
+        ["thickCore", v => v > 0],
+        ...(isCant ? [["thickSide", v => v > 0], ["cantWidth", v => v >= 0]] : []),
+        ["kerf", v => v >= 0],
+        ["sideWidth", v => v > 0], ["minBoardLen", v => v >= 0],
         ["waneWidthFrac", v => v >= 0 && v <= 1], ["waneThickFrac", v => v >= 0 && v <= 1],
         ["mcSap", v => v > 0], ["mcHeart", v => v > 0],
         ["rhoMin", v => v > 0], ["rhoMax", v => v > 0],
@@ -862,9 +934,13 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
         if (!ok(v)) { el.classList.add("bad"); bad.push(id); }
         else el.classList.remove("bad");
       }
-      // a side board narrower than it is thick cannot be produced at all
-      if (p.sideWidth < p.thickSide && !$("sideWidth").classList.contains("bad")) {
-        $("sideWidth").classList.add("bad"); bad.push("sideWidth (narrower than the side board thickness)");
+      // a board narrower than it is thick cannot be produced at all (for live
+      // sawing the board thickness is the thickness; for the cant pattern the
+      // narrowest board is the side board, so that is the yardstick)
+      const tRef = isCant ? p.thickSide : p.thickCore;
+      if (p.sideWidth < tRef && !$("sideWidth").classList.contains("bad")) {
+        $("sideWidth").classList.add("bad");
+        bad.push("sideWidth (narrower than the " + (isCant ? "side board" : "board") + " thickness)");
       }
       if (bad.length) {
         $("boardTable").innerHTML = '<p class="note" style="color:#b3541e">⚠ Please check the highlighted input fields' +
@@ -880,13 +956,17 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
 
     function renderAll() {
       const p = LAST.p, r = LAST.base;
+      const isCant = p.pattern === "cant";
       let warnHtml = "";
       for (const w of r.warnings) warnHtml += '<p class="note" style="color:#b3541e">⚠ ' + w + '</p>';
       if (!r.boards.length) {
-        $("boardTable").innerHTML = warnHtml +
-          '<p class="note">No boards fit this log with the chosen thicknesses/kerf/cant. ' +
+        $("boardTable").innerHTML = warnHtml + (isCant
+          ? '<p class="note">No boards fit this log with the chosen thicknesses/kerf/cant. ' +
           'Reduce the core or side board thickness, cant width or kerf, allow more wane in the Side board section, ' +
-          'or use a larger log.</p>';
+          'or use a larger log.</p>'
+          : '<p class="note">No boards fit this log with the chosen board thickness and kerf. ' +
+          'Reduce the board thickness or kerf, allow more wane in the Boards and wane section, ' +
+          'or use a larger log.</p>');
         $("chart").innerHTML = ""; $("cross").innerHTML = "";
         $("boardSelect").innerHTML = ""; $("chartRho").innerHTML = "";
         return;
@@ -914,7 +994,21 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
       const solidVol = r.boards.reduce((s, b) => s + b.volume, 0);
       const D0 = p.dSmall / 1000, D1 = p.dLarge / 1000;
       const logVol = Math.PI / 12 * p.length * (D0 * D0 + D0 * D1 + D1 * D1);
-      let html = warnHtml + '<table><tr><th>Board</th><th>Thickness (mm)</th><th>Width sawn (mm)</th><th>Width solid (mm)</th>' +
+      // live sawing produces no cant and no flanks, so its board naming and
+      // width limits are explained separately
+      const nameNote = p.pattern === "cant"
+        ? '<p class="note">Board naming: <b>Core 1…n</b> are the boards resawn from the cant (centre of the log, tag C),' +
+        ' <b>Side 1…n</b> are the side boards above and below the cant (tag S) and <b>Side R1 / Side L1</b> are the' +
+        ' boards on the flanks (tags R and L). “Width sawn” is the board width as sawn, so it includes the wane the' +
+        ' board keeps inside the wane limits and can be wider than the cant. Lumber volume counts the boards as sawn' +
+        ' (its wane included), and “Solid wood” excludes it, so a waney side board holds less wood than its sawn' +
+        ' width × thickness × length.</p>'
+        : '<p class="note">Board naming: live sawing cuts no cant and no flanks, so every board is a plain parallel' +
+        ' board numbered <b>Board 1…n</b> (tag B) from the top bark side, across the pith, to the bottom bark side.' +
+        ' “Width sawn” is the board width as sawn, so it includes the wane the board keeps inside the wane limits and' +
+        ' is at most the board width you typed. Lumber volume counts the boards as sawn (its wane included), and' +
+        ' “Solid wood” excludes it, so a waney board holds less wood than its sawn width × thickness × length.</p>';
+      let html = warnHtml + '<table><tr><th>Board</th><th>Thickness (mm)</th><th>Width sawn (mm)</th>' +
         '<th>Length (m)</th><th>Wane trim</th>' +
         '<th>Heartwood %</th><th>Sapwood %</th><th>MC % avg (min–max)</th>' +
         '<th>Oven-dry density kg/m³ — avg (SD)</th></tr>';
@@ -922,7 +1016,7 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
         const b = r.boards[i];
         const mc = stats(pb.values), rho = stats(pb.rhos);
         html += '<tr><td>' + b.label + '</td><td>' + fmt(b.thickness, 1) +
-          '</td><td>' + fmt(b.width, 0) + '</td><td>' + fmt(b.widthSolid, 0) +
+          '</td><td>' + fmt(b.width, 0) +
           '</td><td>' + fmt(b.length, 2) +
           '</td><td>' + trimText(b) +
           '</td><td>' + fmt(b.heartPct, 0) + '</td><td>' + fmt(b.sapPct, 0) +
@@ -935,7 +1029,7 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
         fmt(100 * solidVol / logVol, 2) + ' % as solid wood excl. wane)</p>' +
         '<p style="font-size:.9rem;margin:8px 0 0"><b>Total lumber volume</b> ' +
         fmt(lumberVol, 3) + ' m³ · <b>Total log volume</b> ' + fmt(logVol, 2) + ' m³</p>' +
-        '<p class="note">Board naming: <b>Core 1…n</b> are the boards resawn from the cant (centre of the log, tag C), <b>Side 1…n</b> are the side boards above and below the cant (tag S) and <b>Side R1 / Side L1</b> are the boards on the flanks (tags R and L). “Width sawn” is the board width as sawn (it may include wane, so it can be wider than the cant); “Width solid” is the wane-free width, i.e. board wood area ÷ thickness. Lumber volume counts the boards as sawn (its wane included), and “Solid wood” excludes it, so a waney side board holds less wood than its sawn width × thickness × length.</p>' +
+        nameNote +
         '<p class="note">Oven-dry density = oven-dry mass / oven-dry volume, interpolated ' +
         'linearly from core to perimeter. Between logs, the radial density range is 0.7 × the species ' +
         'range and is placed randomly inside it, so each board’s density varies between logs — shown ' +
@@ -959,7 +1053,7 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
     // Short tag shared by the cross-section diagram and the MC chart.
     function shortTag(b) {
       return b.label.replace("Core ", "C").replace("Side R", "R")
-        .replace("Side L", "L").replace("Side ", "S");
+        .replace("Side L", "L").replace("Side ", "S").replace("Board ", "B");
     }
 
     // Cross-section visualisation at mid-length of the log:
@@ -996,10 +1090,14 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
         }
       }
       // legend + diameter ticks
-      s += '<text x="8" y="' + (H - 24) + '" font-size="11" fill="#1c241c">□ side boards (sawn to the side board width; wane cut back, no shorter than the shortest board length) · ■ core boards · green ring = sapwood · light brown = Hmax zone · dark brown = always heartwood (Hmin)</text>';
+      s += '<text x="8" y="' + (H - 24) + '" font-size="11" fill="#1c241c">' + (p.pattern === "cant"
+        ? '□ side boards (sawn to the side board width; wane cut back, no shorter than the shortest board length) · ■ core boards · '
+        : '□ boards (sawn to the board width; wane cut back, no shorter than the shortest board length) · ') +
+        'green ring = sapwood · light brown = Hmax zone · dark brown = always heartwood (Hmin)</text>';
       s += '<text x="8" y="' + (H - 8) + '" font-size="11" fill="#1c241c">Ø' + p.dSmall + '/' + p.dLarge +
         ' mm (mid-length Ø' + Math.round(2 * Rmid) + ' mm) · board widths limited by the small end</text>';
-      s += '<text x="8" y="' + (H - 40) + '" font-size="11" fill="#1c241c">Side-board wane is trimmed: the board is cut back towards the large end until the wane limits are met, and is only produced if that leaves at least the shortest allowed board length</text>';
+      s += '<text x="8" y="' + (H - 40) + '" font-size="11" fill="#1c241c">' + (p.pattern === "cant" ? "Side-board" : "Board") +
+        ' wane is trimmed: the board is cut back towards the large end until the wane limits are met, and is only produced if that leaves at least the shortest allowed board length</text>';
       s += '</svg>';
       $("cross").innerHTML = s;
     }

@@ -287,6 +287,17 @@ if (tntC.some(b => b.width > pDef.sideWidth + 0.01)) {
   console.log("FAIL  live-sawn board wider than the side board width"); fails++;
 } else console.log("PASS  live-sawn boards edged to the side board width (" +
   tntC.map(b => b.width).join(", ") + " mm)");
+// 9c-ii. live sawing has no side board thickness and no cant, so neither may
+//        change a single number. A board only has to be at least as wide as it
+//        is thick, so the yardstick is the board's own thickness, not the side
+//        board thickness (which does not exist in this pattern).
+const tntThin = E.compute({ ...pDef, pattern: "tnt", cantWidth: 0, thickSide: 25 });
+const tntFat = E.compute({ ...pDef, pattern: "tnt", cantWidth: 0, thickSide: 200 });
+if (!tntThin.boards.length || JSON.stringify(tntThin.boards) !== JSON.stringify(tntFat.boards)) {
+  console.log("FAIL  live sawing must not depend on the side board thickness, got",
+    tntFat.boards.length, "boards for a 200 mm side board thickness"); fails++;
+} else console.log("PASS  live sawing ignores the side board thickness (" +
+  tntThin.boards.length + " boards, identical for 25 and 200 mm)");
 
 // 9d. cutting back to the wane limits, dropping, and the shortest-board rule.
 // A side board keeps its sawn width: if the part of the log that meets the
