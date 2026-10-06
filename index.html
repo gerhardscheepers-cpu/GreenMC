@@ -244,8 +244,10 @@
       <button id="calc">Calculate</button>
       <button id="csv" class="secondary">Export CSV</button>
       <button id="print" class="secondary">Print / PDF</button>
-      <p class="note" id="noteCant">Sawing model: the cant takes the middle of the log and is resawn into core boards of the core
-        board thickness. The cant keeps the width you type — it is cut as tall as the log allows, so the number of core boards grows with the log diameter instead of being limited by that width (a width so wide
+      <p class="note" id="noteCant">Sawing model: the cant takes the middle of the log and is resawn into core boards of
+        the core
+        board thickness. The cant keeps the width you type — it is cut as tall as the log allows, so the number of core
+        boards grows with the log diameter instead of being limited by that width (a width so wide
         that not even one core board would fit is clamped, with a warning). The boards above and below the cant and
         the boards on both flanks are side boards, sawn to the side board thickness and edged to the side board width
         (never wider than the cant). Wane — wood missing at a board corner because the board reaches past the log —
@@ -1063,7 +1065,7 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
       const Rmid = (p.dSmall / 2 + p.dLarge / 2) / 2;      // radius at mid-length
       const rhMin = Rmid * p.heartFracMin;                  // always-heartwood radius
       const rhMax = Rmid * p.heartFracMax;                  // maximum heartwood radius
-      const S = 420, H = 455, C = S / 2;
+      const S = 420, H = 404, C = S / 2;                 // diagram only; captions sit below the svg
       const sc = (C - 24) / Rmid;                           // mm -> px
       let s = '<h2>Cross-section at mid-length of the log</h2>';
       s += '<svg viewBox="0 0 ' + S + ' ' + H + '" width="' + S + '" style="max-width:100%">';
@@ -1089,16 +1091,17 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
             '" font-size="11" text-anchor="middle" fill="#1c241c">' + shortTag(b) + '</text>';
         }
       }
-      // legend + diameter ticks
-      s += '<text x="8" y="' + (H - 24) + '" font-size="11" fill="#1c241c">' + (p.pattern === "cant"
+      s += '</svg>';
+      // Captions are HTML, not <text>: SVG text does not wrap and gets clipped
+      // at the 420 px viewBox edge, which cut these lines off mid-sentence.
+      s += '<p class="note">' + (p.pattern === "cant" ? "Side-board" : "Board") +
+        ' wane is trimmed: the board is cut back towards the large end until the wane limits are met, and is only produced if that leaves at least the shortest allowed board length</p>';
+      s += '<p class="note" style="margin:6px 0 0">' + (p.pattern === "cant"
         ? '□ side boards (sawn to the side board width; wane cut back, no shorter than the shortest board length) · ■ core boards · '
         : '□ boards (sawn to the board width; wane cut back, no shorter than the shortest board length) · ') +
-        'green ring = sapwood · light brown = Hmax zone · dark brown = always heartwood (Hmin)</text>';
-      s += '<text x="8" y="' + (H - 8) + '" font-size="11" fill="#1c241c">Ø' + p.dSmall + '/' + p.dLarge +
-        ' mm (mid-length Ø' + Math.round(2 * Rmid) + ' mm) · board widths limited by the small end</text>';
-      s += '<text x="8" y="' + (H - 40) + '" font-size="11" fill="#1c241c">' + (p.pattern === "cant" ? "Side-board" : "Board") +
-        ' wane is trimmed: the board is cut back towards the large end until the wane limits are met, and is only produced if that leaves at least the shortest allowed board length</text>';
-      s += '</svg>';
+        'green ring = sapwood · light brown = Hmax zone · dark brown = always heartwood (Hmin)</p>';
+      s += '<p class="note" style="margin:6px 0 0">Ø' + p.dSmall + '/' + p.dLarge +
+        ' mm (mid-length Ø' + Math.round(2 * Rmid) + ' mm) · board widths limited by the small end</p>';
       $("cross").innerHTML = s;
     }
 
