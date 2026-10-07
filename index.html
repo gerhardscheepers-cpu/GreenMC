@@ -1096,11 +1096,13 @@ Units: mm, m, kg, kg/m3. Densities are basic densities
       // at the 420 px viewBox edge, which cut these lines off mid-sentence.
       s += '<p class="note">' + (p.pattern === "cant" ? "Side-board" : "Board") +
         ' wane is trimmed: the board is cut back towards the large end until the wane limits are met, and is only produced if that leaves at least the shortest allowed board length</p>';
-      // Swatch glyphs carry the diagram's board colours (side blue, core green);
-      // as plain text they rendered in the note's grey and matched nothing.
+      // Swatches are deliberately much lighter tints of the diagram's board
+      // colours: at base strength the dark blue and dark green were too close in
+      // lightness to tell apart as small glyphs. (Bare text had rendered them in
+      // the note's grey, matching nothing at all.)
       s += '<p class="note" style="margin:6px 0 0">' + (p.pattern === "cant"
-        ? '<span style="color:#2b6cb0">■</span> side boards (sawn to the side board width; wane cut back, no shorter than the shortest board length) · <span style="color:#2e6b34">■</span> core boards · '
-        : '<span style="color:#2b6cb0">■</span> boards (sawn to the board width; wane cut back, no shorter than the shortest board length) · ') +
+        ? '<span style="color:#6ba8ec">■</span> side boards (sawn to the side board width; wane cut back, no shorter than the shortest board length) · <span style="color:#6cc46c">■</span> core boards · '
+        : '<span style="color:#6ba8ec">■</span> boards (sawn to the board width; wane cut back, no shorter than the shortest board length) · ') +
         'green ring = sapwood · light brown = Hmax zone · dark brown = always heartwood (Hmin)</p>';
       s += '<p class="note" style="margin:6px 0 0">Ø' + p.dSmall + '/' + p.dLarge +
         ' mm (mid-length Ø' + Math.round(2 * Rmid) + ' mm) · board widths limited by the small end</p>';
